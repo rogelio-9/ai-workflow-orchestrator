@@ -1,4 +1,6 @@
-from fastapi import Depends, FastAPI, status
+import uuid
+
+from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -23,8 +25,15 @@ def create_workflow(payload: WorkflowCreate, db: Session = Depends(get_db)):
 def list_workflows(db: Session = Depends(get_db)):
     return db.query(Workflow).all()
 
+@app.get("/workflows/{workflow_id}", response_model=WorkflowRead)
+def get_workflow(workflow_id: uuid.UUID, db: Session = Depends(get_db)):
+    workflow = db.get(Workflow, workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    return workflow
+
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
-    return {"status": "ok"}
+    return {"status": "ok", "reload": "works"}
