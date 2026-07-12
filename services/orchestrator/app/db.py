@@ -3,6 +3,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+from collections.abc import Generator
+
+from sqlalchemy.orm import Session
+
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 # pool_pre_ping avoids stale connections when Docker containers cycle
@@ -15,3 +19,10 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 # classes to their database tables.
 class Base(DeclarativeBase):
     pass
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

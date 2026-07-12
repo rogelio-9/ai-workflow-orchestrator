@@ -58,6 +58,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  
+  orchestrator:
+    build: ./services/orchestrator
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://orchestrator:orchestrator@postgres:5432/orchestrator
 
 volumes:
   postgres_data:
