@@ -21,3 +21,8 @@ class WorkflowRead(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = None
+    dag_json: dict[str, Any] | None = None
