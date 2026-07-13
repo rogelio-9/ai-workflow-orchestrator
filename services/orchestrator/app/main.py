@@ -48,6 +48,15 @@ def update_workflow(
     db.refresh(workflow)
     return workflow
 
+@app.delete("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workflow(workflow_id: uuid.UUID, db: Session = Depends(get_db)):
+    workflow = db.get(Workflow, workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    db.delete(workflow)
+    db.commit()
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
