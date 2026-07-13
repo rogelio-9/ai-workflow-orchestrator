@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, text
+from sqlalchemy import DateTime, ForeignKey, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,7 +23,7 @@ class Workflow(Base):
         DateTime(timezone=True), server_default=text("now()")
     )
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), server_default=text("now()")
+        DateTime(timezone=True), server_default=text("now()"), onupdate=func.now()
     )
 
 
