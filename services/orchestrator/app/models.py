@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
@@ -43,6 +43,9 @@ class Run(Base):
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    step_results: Mapped[list["StepResult"]] = relationship(
+        back_populates="run", lazy="selectin"
+    )
 
 
 class Step(Base):
@@ -78,3 +81,4 @@ class StepResult(Base):
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
+    run: Mapped["Run"] = relationship(back_populates="step_results")
