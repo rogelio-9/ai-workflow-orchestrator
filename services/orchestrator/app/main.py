@@ -5,8 +5,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Workflow
-from app.schemas import WorkflowCreate, WorkflowRead, WorkflowUpdate
+from app.models import Workflow, Run
+from app.schemas import WorkflowCreate, WorkflowRead, WorkflowUpdate, RunCreate, RunRead
 
 
 app = FastAPI(title="Orchestrator")
@@ -56,6 +56,21 @@ def delete_workflow(workflow_id: uuid.UUID, db: Session = Depends(get_db)):
 
     db.delete(workflow)
     db.commit()
+
+@app.post("/runs", response_model=RunRead, status_code=status.HTTP_201_CREATED)
+def create_run(payload: RunCreate, db: Session = Depends(get_db)):
+    run = Run(**payload.model_dump(), status="PENDING")
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+@app.get("/runs/{run_id}", response_model=RunRead)
+def get_run(run_id: uuid.UUID, db: Session = Depends(get_db)):
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return run
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
