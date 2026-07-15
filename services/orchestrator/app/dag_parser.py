@@ -36,3 +36,6 @@ def topological_sort(dag_json: dict[str, Any]) -> list[str]:
         raise CycleError("dag contains a cycle; no valid topological ordering exists")
 
     return order
+
+def ready_steps(dag_json: dict[str, Any]) -> list[dict[str, Any]]:
+    return [n for n in dag_json.get("nodes", []) if not n.get("depends_on")]
