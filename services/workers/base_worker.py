@@ -4,8 +4,9 @@ import os
 import signal
 import uuid
 import redis
+import time
 
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, KafkaError, Producer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,6 +17,10 @@ log = logging.getLogger("base_worker")
 TOPIC = "workflow.tasks"
 
 LOCK_TTL_SECONDS = 60
+
+# No real executor until the execution engine lands; this hook lets us force
+# failures to exercise the retry path. TODO(executor)
+FAIL_STEPS = set(filter(None, os.environ.get("FAIL_STEPS", "").split(",")))
 
 running = True
 
@@ -35,11 +40,27 @@ def build_consumer() -> Consumer:
         }
     )
 
+
 def build_redis() -> redis.Redis:
     return redis.Redis.from_url(
         os.environ["REDIS_URL"], decode_responses=True
     )
 
+
+def build_producer() -> Producer:
+    return Producer(
+        {
+            "bootstrap.servers": os.environ["KAFKA_BOOTSTRAP_SERVERS"],
+            "enable.idempotence": True,
+        }
+    )
+
+
+def execute_step(payload: dict) -> None:
+    step_id = payload.get("step_id")
+    if step_id in FAIL_STEPS:
+        raise RuntimeError(f"injected failure for step_id={step_id}")
+    
 
 def main() -> None:
     signal.signal(signal.SIGINT, _shutdown)
@@ -47,6 +68,7 @@ def main() -> None:
 
     consumer = build_consumer()
     r = build_redis()
+    producer = build_producer()
     consumer.subscribe([TOPIC])
     log.info("subscribed to %s", TOPIC)
 
@@ -74,14 +96,22 @@ def main() -> None:
                 consumer.commit(msg)
                 continue
 
+            attempt = payload.get("attempt", 0)
+            retry_payload = None
+
             try:
                 log.info(
-                    "executing step_id=%s partition=%s offset=%s",
+                    "executing step_id=%s partition=%s offset=%s attempt=%s",
                     step_id,
                     msg.partition(),
                     msg.offset(),
+                    attempt,
                 )
+                execute_step(payload)
                 consumer.commit(msg)
+            except Exception:
+                log.exception("step_id=%s failed on attempt=%s", step_id, attempt)
+                retry_payload = {**payload, "attempt": attempt + 1}
             finally:
                 # Check-then-delete is not atomic; a lock that expired mid-work
                 # and was re-taken could be released by the wrong owner. Needs a
@@ -89,6 +119,20 @@ def main() -> None:
                 # TODO(locking)
                 if r.get(lock_key) == token:
                     r.delete(lock_key)
+
+            # Republish only after the lock is released, or the redelivery lands
+            # while this worker still holds it and gets dropped by the skip path.
+            if retry_payload is not None:
+                # Sleep-and-republish; Kafka has no delayed delivery. Bounded by
+                # max.poll.interval.ms - longer backoffs need delay topics.
+                time.sleep(2 ** attempt)
+                producer.produce(
+                    TOPIC,
+                    key=msg.key(),
+                    value=json.dumps(retry_payload).encode(),
+                )
+                producer.flush()
+                consumer.commit(msg)
     finally:
         consumer.close()
         log.info("consumer closed")
