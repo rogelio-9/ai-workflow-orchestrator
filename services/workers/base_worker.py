@@ -7,6 +7,7 @@ import redis
 import time
 
 from confluent_kafka import Consumer, KafkaError, Producer
+from sqlalchemy import create_engine, text
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,6 +16,10 @@ logging.basicConfig(
 log = logging.getLogger("base_worker")
 
 TOPIC = "workflow.tasks"
+
+MAX_ATTEMPTS = 3
+
+DLQ_TOPIC = "workflow.tasks.dlq"
 
 LOCK_TTL_SECONDS = 60
 
@@ -56,6 +61,10 @@ def build_producer() -> Producer:
     )
 
 
+def build_engine():
+    return create_engine(os.environ["DATABASE_URL"])
+
+
 def execute_step(payload: dict) -> None:
     step_id = payload.get("step_id")
     if step_id in FAIL_STEPS:
@@ -69,6 +78,7 @@ def main() -> None:
     consumer = build_consumer()
     r = build_redis()
     producer = build_producer()
+    engine = build_engine()
     consumer.subscribe([TOPIC])
     log.info("subscribed to %s", TOPIC)
 
@@ -87,6 +97,30 @@ def main() -> None:
 
             payload = json.loads(msg.value())
             step_id = payload.get("step_id")
+            attempt = payload.get("attempt", 0)
+
+            if attempt > MAX_ATTEMPTS:
+                log.error(
+                    "step_id=%s exhausted %s attempts, routing to DLQ",
+                    step_id, MAX_ATTEMPTS,
+                )
+                producer.produce(
+                    DLQ_TOPIC,
+                    key=msg.key(),
+                    value=json.dumps(payload).encode(),
+                )
+                producer.flush()
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "UPDATE runs SET status='FAILED', ended_at=now() "
+                            "WHERE id = :run_id"
+                        ),
+                        {"run_id": msg.key().decode()},
+                    )
+                consumer.commit(msg)
+                continue
+
             lock_key = f"lock:step:{step_id}"
             token = str(uuid.uuid4())
 
@@ -96,7 +130,6 @@ def main() -> None:
                 consumer.commit(msg)
                 continue
 
-            attempt = payload.get("attempt", 0)
             retry_payload = None
 
             try:
