@@ -22,6 +22,7 @@ MAX_ATTEMPTS = 3
 DLQ_TOPIC = "workflow.tasks.dlq"
 
 LOCK_TTL_SECONDS = 60
+PROCESSED_TTL_SECONDS = 60 * 60 * 24
 
 # No real executor until the execution engine lands; this hook lets us force
 # failures to exercise the retry path. TODO(executor)
@@ -100,6 +101,12 @@ def main() -> None:
             attempt = payload.get("attempt", 0)
             run_id = msg.key().decode()
 
+            processed_key = f"processed:step:{run_id}:{step_id}"
+            if r.exists(processed_key):
+                log.info("step_id=%s already processed, skipping", step_id)
+                consumer.commit(msg)
+                continue
+
             if attempt > MAX_ATTEMPTS:
                 log.error(
                     "step_id=%s exhausted %s attempts, routing to DLQ",
@@ -142,6 +149,7 @@ def main() -> None:
                     attempt,
                 )
                 execute_step(payload)
+                r.set(processed_key, "1", ex=PROCESSED_TTL_SECONDS)
                 consumer.commit(msg)
             except Exception:
                 log.exception("step_id=%s failed on attempt=%s", step_id, attempt)
