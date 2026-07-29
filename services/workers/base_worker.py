@@ -98,6 +98,7 @@ def main() -> None:
             payload = json.loads(msg.value())
             step_id = payload.get("step_id")
             attempt = payload.get("attempt", 0)
+            run_id = msg.key().decode()
 
             if attempt > MAX_ATTEMPTS:
                 log.error(
@@ -116,12 +117,12 @@ def main() -> None:
                             "UPDATE runs SET status='FAILED', ended_at=now() "
                             "WHERE id = :run_id"
                         ),
-                        {"run_id": msg.key().decode()},
+                        {"run_id": run_id},
                     )
                 consumer.commit(msg)
                 continue
 
-            lock_key = f"lock:step:{step_id}"
+            lock_key = f"lock:step:{run_id}:{step_id}"
             token = str(uuid.uuid4())
 
             acquired = r.set(lock_key, token, nx=True, ex=LOCK_TTL_SECONDS)
