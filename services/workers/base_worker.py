@@ -5,6 +5,7 @@ import signal
 import uuid
 import redis
 import time
+from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, KafkaError, Producer
 from sqlalchemy import create_engine, text
@@ -23,6 +24,7 @@ DLQ_TOPIC = "workflow.tasks.dlq"
 
 LOCK_TTL_SECONDS = 60
 PROCESSED_TTL_SECONDS = 60 * 60 * 24
+STEPS_DONE_TTL_SECONDS = 60 * 60 * 24
 
 # No real executor until the execution engine lands; this hook lets us force
 # failures to exercise the retry path. TODO(executor)
@@ -64,6 +66,33 @@ def build_producer() -> Producer:
 
 def build_engine():
     return create_engine(os.environ["DATABASE_URL"])
+
+def load_dag(engine, run_id: str) -> dict:
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT w.dag_json FROM runs r "
+                "JOIN workflows w ON w.id = r.workflow_id "
+                "WHERE r.id = :run_id"
+            ),
+            {"run_id": run_id},
+        ).first()
+    return row[0] if row else {}
+
+
+def unblocked_steps(dag_json: dict, done: set[str]) -> list[dict]:
+    # Duplicated from services/orchestrator/app/dag_parser.py rather than
+    # imported, same cross-service argument as build_producer. A shared package
+    # is the real fix. TODO(shared)
+    return [
+        n
+        for n in dag_json.get("nodes", [])
+        # Root steps are the orchestrator's job at run creation; re-publishing
+        # them here would duplicate the first wave on every completion.
+        if n.get("depends_on")
+        and n["id"] not in done
+        and all(dep in done for dep in n["depends_on"])
+    ]
 
 
 def execute_step(payload: dict) -> None:
@@ -149,6 +178,47 @@ def main() -> None:
                     attempt,
                 )
                 execute_step(payload)
+
+                done_key = f"run:{run_id}:steps_done"
+                r.sadd(done_key, step_id)
+                r.expire(done_key, STEPS_DONE_TTL_SECONDS)
+                done = set(r.smembers(done_key))
+
+                dag_json = load_dag(engine, run_id)
+                published_at = datetime.now(timezone.utc).isoformat()
+                for node in unblocked_steps(dag_json, done):
+                    log.info("publishing unblocked step_id=%s", node["id"])
+                    producer.produce(
+                        TOPIC,
+                        key=msg.key(),
+                        value=json.dumps(
+                            {
+                                "run_id": run_id,
+                                "step_id": node["id"],
+                                "step_type": node.get("type"),
+                                "attempt": 1,
+                                "config": node.get("config", {}),
+                                "input_vars": payload.get("input_vars", {}),
+                                "published_at": published_at,
+                            }
+                        ).encode(),
+                    )
+                producer.flush()
+
+                if {n["id"] for n in dag_json.get("nodes", [])} <= done:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text(
+                                "UPDATE runs SET status='COMPLETE', ended_at=now() "
+                                "WHERE id = :run_id"
+                            ),
+                            {"run_id": run_id},
+                        )
+                    log.info("run_id=%s complete", run_id)
+
+                # Marker is set after fan-out, not before: a crash between the
+                # two would otherwise leave the step marked done with its
+                # downstream never published, stalling the run permanently.
                 r.set(processed_key, "1", ex=PROCESSED_TTL_SECONDS)
                 consumer.commit(msg)
             except Exception:
