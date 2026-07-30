@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package llm_gateway.v1;
+
+service LLMGateway {
+  rpc RunCompletion(CompletionRequest) returns (CompletionResponse);
+}
+
+message GenerationConfig {
+  float temperature = 1;
+  int32 max_tokens = 2;
+}
+
+message CompletionRequest {
+  string run_id = 1;
+  string step_id = 2;
+  string prompt = 3;
+  string model = 4;
+  GenerationConfig config = 5;
+}
+
+message CompletionResponse {
+  string completion = 1;
+  int32 prompt_tokens = 2;
+  int32 completion_tokens = 3;
+  int32 latency_ms = 4;
+}
