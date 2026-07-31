@@ -75,7 +75,8 @@ class StepResult(Base):
     status: Mapped[str | None] = mapped_column(Text)
     output_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
-    llm_tokens: Mapped[int | None] = mapped_column(Integer)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     attempt: Mapped[int | None] = mapped_column(Integer, server_default=text("1"))
     created_at: Mapped[datetime | None] = mapped_column(

@@ -36,7 +36,8 @@ class StepResultRead(BaseModel):
     status: str | None
     output_json: dict[str, Any] | None
     latency_ms: int | None
-    llm_tokens: int | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
     error_message: str | None
     attempt: int | None
     created_at: datetime
