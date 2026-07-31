@@ -27,7 +27,9 @@ def _detail(response: httpx.Response) -> str:
 
 
 class OllamaProvider(Provider):
-    def complete(self, model: str, prompt: str, config) -> Completion:
+    def complete(
+        self, model: str, prompt: str, config, timeout: float | None = None
+    ) -> Completion:
         options = set_fields(config)
         # Ollama calls the output cap num_predict.
         if "max_tokens" in options:
@@ -42,11 +44,12 @@ class OllamaProvider(Provider):
                     "stream": False,
                     "options": options,
                 },
-                timeout=TIMEOUT_SECONDS,
+                # Never outlive the caller's deadline.
+                timeout=min(TIMEOUT_SECONDS, timeout) if timeout else TIMEOUT_SECONDS,
             )
             response.raise_for_status()
         except httpx.TimeoutException as exc:
-            raise ProviderTimeout(f"ollama timed out after {TIMEOUT_SECONDS}s") from exc
+            raise ProviderTimeout(f"ollama timed out: {exc}") from exc
         except httpx.HTTPStatusError as exc:
             # Status class decides retryable vs not. A missing model is
             # permanent -- retrying it just burns the worker's backoff budget

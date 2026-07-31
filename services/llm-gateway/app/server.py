@@ -11,7 +11,8 @@ import grpc
 import llm_gateway_pb2 as pb
 import llm_gateway_pb2_grpc as pb_grpc
 
-from app import providers
+from app import providers, retry
+from app.ratelimit import RateLimiter
 
 
 LOG = logging.getLogger("llm_gateway")
@@ -31,6 +32,7 @@ GRACE_PERIOD_SECONDS = 10
 _STATUS_FOR = {
     providers.UnknownProvider: grpc.StatusCode.INVALID_ARGUMENT,
     providers.ProviderNotFound: grpc.StatusCode.NOT_FOUND,
+    providers.ProviderRejected: grpc.StatusCode.INVALID_ARGUMENT,
     providers.ProviderRateLimited: grpc.StatusCode.RESOURCE_EXHAUSTED,
     providers.ProviderTimeout: grpc.StatusCode.DEADLINE_EXCEEDED,
     providers.ProviderUnavailable: grpc.StatusCode.UNAVAILABLE,
@@ -38,6 +40,9 @@ _STATUS_FOR = {
 
 
 class LLMGatewayServicer(pb_grpc.LLMGatewayServicer):
+    def __init__(self, limiter=None):
+        self._limiter = limiter if limiter is not None else RateLimiter()
+
     def RunCompletion(self, request, context):
         started = time.perf_counter()
 
@@ -50,7 +55,21 @@ class LLMGatewayServicer(pb_grpc.LLMGatewayServicer):
 
         try:
             provider, model = providers.resolve(request.model)
-            result = provider.complete(model, request.prompt, request.config)
+            name = request.model.partition(":")[0]
+
+            def attempt():
+                # Inside the retried operation so a rejected call re-checks
+                # after the backoff, by which point the window has slid.
+                if not self._limiter.admit(name):
+                    raise providers.ProviderRateLimited(
+                        f"{name} over its local quota "
+                        f"({self._limiter.limit_for(name)}/window)"
+                    )
+                return provider.complete(
+                    model, request.prompt, request.config, timeout=context.time_remaining()
+                )
+
+            result = retry.call_with_retry(attempt, time_remaining=context.time_remaining)
         except providers.ProviderError as exc:
             status = _STATUS_FOR.get(type(exc), grpc.StatusCode.INTERNAL)
             LOG.warning("completion failed model=%s %s", request.model, exc)

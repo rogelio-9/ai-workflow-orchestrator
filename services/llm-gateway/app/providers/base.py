@@ -16,6 +16,11 @@ class ProviderNotFound(ProviderError):
     """Backend is up but does not have that model. Not retryable."""
 
 
+class ProviderRejected(ProviderError):
+    """Backend refused the request itself -- bad key, blocked prompt,
+    malformed call. Not retryable."""
+
+
 class ProviderRateLimited(ProviderError):
     """Backend refused for quota reasons. Retryable after a backoff."""
 
@@ -46,5 +51,12 @@ def set_fields(config) -> dict:
 
 class Provider(ABC):
     @abstractmethod
-    def complete(self, model: str, prompt: str, config) -> Completion:
-        """Run one completion. Raise a ProviderError subclass on failure."""
+    def complete(
+        self, model: str, prompt: str, config, timeout: float | None = None
+    ) -> Completion:
+        """Run one completion. Raise a ProviderError subclass on failure.
+
+        timeout is the caller's remaining deadline in seconds; a backend must
+        not outlive it, or it burns budget producing an answer nobody is still
+        waiting for.
+        """
