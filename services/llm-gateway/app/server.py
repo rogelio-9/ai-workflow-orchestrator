@@ -1,8 +1,4 @@
-"""gRPC server for the LLM gateway.
-
-RunCompletion returns a hardcoded completion. The provider factory lands
-behind this same RPC signature, so callers do not change.
-"""
+"""gRPC server for the LLM gateway."""
 
 import logging
 import os
@@ -15,6 +11,8 @@ import grpc
 import llm_gateway_pb2 as pb
 import llm_gateway_pb2_grpc as pb_grpc
 
+from app import providers
+
 
 LOG = logging.getLogger("llm_gateway")
 
@@ -25,6 +23,18 @@ GRPC_PORT = int(os.environ.get("GRPC_PORT", "50052"))
 MAX_WORKERS = int(os.environ.get("GRPC_MAX_WORKERS", "10"))
 
 GRACE_PERIOD_SECONDS = 10
+
+# Provider failures travel as gRPC status codes; the proto has no error field.
+# The split that matters downstream is retryable vs not: UNAVAILABLE,
+# DEADLINE_EXCEEDED and RESOURCE_EXHAUSTED are worth a backoff, the other two
+# never succeed no matter how many attempts the worker spends on them.
+_STATUS_FOR = {
+    providers.UnknownProvider: grpc.StatusCode.INVALID_ARGUMENT,
+    providers.ProviderNotFound: grpc.StatusCode.NOT_FOUND,
+    providers.ProviderRateLimited: grpc.StatusCode.RESOURCE_EXHAUSTED,
+    providers.ProviderTimeout: grpc.StatusCode.DEADLINE_EXCEEDED,
+    providers.ProviderUnavailable: grpc.StatusCode.UNAVAILABLE,
+}
 
 
 class LLMGatewayServicer(pb_grpc.LLMGatewayServicer):
@@ -38,17 +48,28 @@ class LLMGatewayServicer(pb_grpc.LLMGatewayServicer):
             request.model,
         )
 
-        # TODO(provider): replaced by the provider factory.
-        completion = f"[stub completion for model={request.model!r}]"
+        try:
+            provider, model = providers.resolve(request.model)
+            result = provider.complete(model, request.prompt, request.config)
+        except providers.ProviderError as exc:
+            status = _STATUS_FOR.get(type(exc), grpc.StatusCode.INTERNAL)
+            LOG.warning("completion failed model=%s %s", request.model, exc)
+            context.abort(status, str(exc))
 
         latency_ms = int((time.perf_counter() - started) * 1000)
+        LOG.info(
+            "completion ok run_id=%s step_id=%s tokens=%d/%d latency_ms=%d",
+            request.run_id,
+            request.step_id,
+            result.prompt_tokens,
+            result.completion_tokens,
+            latency_ms,
+        )
 
-        # TODO(provider): ~4 chars/token stand-in so the field is non-zero
-        # end-to-end. Real providers report real counts.
         return pb.CompletionResponse(
-            completion=completion,
-            prompt_tokens=len(request.prompt) // 4,
-            completion_tokens=len(completion) // 4,
+            completion=result.text,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
             latency_ms=latency_ms,
         )
 

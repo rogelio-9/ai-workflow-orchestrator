@@ -16,4 +16,6 @@ ENV PYTHONPATH=/app/gen
 
 EXPOSE 50052
 
-CMD ["python", "app/server.py"]
+# -m so app/ is imported as a package and `from app.providers import ...`
+# resolves; running the file directly puts app/ itself on sys.path instead.
+CMD ["python", "-m", "app.server"]

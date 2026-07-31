@@ -24,19 +24,19 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11llm_gateway.proto\x12\x0ellm_gateway.v1\";\n\x10GenerationConfig\x12\x13\n\x0btemperature\x18\x01 \x01(\x02\x12\x12\n\nmax_tokens\x18\x02 \x01(\x05\"\x85\x01\n\x11\x43ompletionRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\t\x12\x0e\n\x06prompt\x18\x03 \x01(\t\x12\r\n\x05model\x18\x04 \x01(\t\x12\x30\n\x06\x63onfig\x18\x05 \x01(\x0b\x32 .llm_gateway.v1.GenerationConfig\"n\n\x12\x43ompletionResponse\x12\x12\n\ncompletion\x18\x01 \x01(\t\x12\x15\n\rprompt_tokens\x18\x02 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x03 \x01(\x05\x12\x12\n\nlatency_ms\x18\x04 \x01(\x05\x32\x64\n\nLLMGateway\x12V\n\rRunCompletion\x12!.llm_gateway.v1.CompletionRequest\x1a\".llm_gateway.v1.CompletionResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11llm_gateway.proto\x12\x0ellm_gateway.v1\"\xa0\x01\n\x10GenerationConfig\x12\x18\n\x0btemperature\x18\x01 \x01(\x02H\x00\x88\x01\x01\x12\x17\n\nmax_tokens\x18\x02 \x01(\x05H\x01\x88\x01\x01\x12\x12\n\x05top_k\x18\x03 \x01(\x05H\x02\x88\x01\x01\x12\x12\n\x05top_p\x18\x04 \x01(\x02H\x03\x88\x01\x01\x42\x0e\n\x0c_temperatureB\r\n\x0b_max_tokensB\x08\n\x06_top_kB\x08\n\x06_top_p\"\x85\x01\n\x11\x43ompletionRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\t\x12\x0e\n\x06prompt\x18\x03 \x01(\t\x12\r\n\x05model\x18\x04 \x01(\t\x12\x30\n\x06\x63onfig\x18\x05 \x01(\x0b\x32 .llm_gateway.v1.GenerationConfig\"n\n\x12\x43ompletionResponse\x12\x12\n\ncompletion\x18\x01 \x01(\t\x12\x15\n\rprompt_tokens\x18\x02 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x03 \x01(\x05\x12\x12\n\nlatency_ms\x18\x04 \x01(\x05\x32\x64\n\nLLMGateway\x12V\n\rRunCompletion\x12!.llm_gateway.v1.CompletionRequest\x1a\".llm_gateway.v1.CompletionResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'llm_gateway_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_GENERATIONCONFIG']._serialized_start=37
-  _globals['_GENERATIONCONFIG']._serialized_end=96
-  _globals['_COMPLETIONREQUEST']._serialized_start=99
-  _globals['_COMPLETIONREQUEST']._serialized_end=232
-  _globals['_COMPLETIONRESPONSE']._serialized_start=234
-  _globals['_COMPLETIONRESPONSE']._serialized_end=344
-  _globals['_LLMGATEWAY']._serialized_start=346
-  _globals['_LLMGATEWAY']._serialized_end=446
+  _globals['_GENERATIONCONFIG']._serialized_start=38
+  _globals['_GENERATIONCONFIG']._serialized_end=198
+  _globals['_COMPLETIONREQUEST']._serialized_start=201
+  _globals['_COMPLETIONREQUEST']._serialized_end=334
+  _globals['_COMPLETIONRESPONSE']._serialized_start=336
+  _globals['_COMPLETIONRESPONSE']._serialized_end=446
+  _globals['_LLMGATEWAY']._serialized_start=448
+  _globals['_LLMGATEWAY']._serialized_end=548
 # @@protoc_insertion_point(module_scope)

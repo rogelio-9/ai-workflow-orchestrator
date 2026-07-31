@@ -6,9 +6,14 @@ service LLMGateway {
   rpc RunCompletion(CompletionRequest) returns (CompletionResponse);
 }
 
+// Fields are `optional` for explicit presence: in plain proto3 a scalar has no
+// unset state, so temperature=0 (deterministic) is indistinguishable from
+// "caller said nothing" and would silently fall back to the provider default.
 message GenerationConfig {
-  float temperature = 1;
-  int32 max_tokens = 2;
+  optional float temperature = 1;
+  optional int32 max_tokens  = 2;
+  optional int32 top_k       = 3;
+  optional float top_p       = 4;
 }
 
 message CompletionRequest {
