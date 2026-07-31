@@ -75,5 +75,15 @@ services:
       DATABASE_URL: postgresql+psycopg2://orchestrator:orchestrator@postgres:5432/orchestrator
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
 
+  llm-gateway:
+    build:
+      # Root context so the Dockerfile can reach the shared gen/ stubs.
+      context: .
+      dockerfile: services/llm-gateway/Dockerfile
+    ports:
+      - "50052:50052"
+    environment:
+      GRPC_PORT: 50052
+
 volumes:
   postgres_data:

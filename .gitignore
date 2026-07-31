@@ -26,5 +26,6 @@ postgres_data/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 
 /notes.sh
