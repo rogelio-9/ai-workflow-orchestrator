@@ -57,6 +57,7 @@ class Step(Base):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workflows.id")
     )
+    node_id: Mapped[str] = mapped_column(Text)
     type: Mapped[str] = mapped_column(Text)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
