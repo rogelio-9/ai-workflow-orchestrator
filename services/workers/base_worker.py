@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from confluent_kafka import Consumer, KafkaError, Producer
 from sqlalchemy import create_engine, text
 
+import grpc
+
+import gateway_client
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -29,6 +33,14 @@ STEPS_DONE_TTL_SECONDS = 60 * 60 * 24
 # No real executor until the execution engine lands; this hook lets us force
 # failures to exercise the retry path. TODO(executor)
 FAIL_STEPS = set(filter(None, os.environ.get("FAIL_STEPS", "").split(",")))
+
+# The gateway already decided which failures a later attempt could survive.
+# Retrying these burns the full backoff ladder to reach the same answer:
+# a model that does not exist will not exist in eight seconds either.
+TERMINAL_GRPC = {
+    grpc.StatusCode.INVALID_ARGUMENT,
+    grpc.StatusCode.NOT_FOUND,
+}
 
 running = True
 
@@ -112,10 +124,79 @@ def unblocked_steps(dag_json: dict, done: set[str]) -> list[dict]:
     ]
 
 
-def execute_step(payload: dict) -> None:
+def write_step_result(engine, payload: dict, result: dict, status: str) -> None:
+    """Record what this step produced.
+
+    Raw text() rather than the ORM: the worker does not own the orchestrator's
+    models, same call as the FAILED write and load_dag.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO step_results (
+                    run_id, step_id, status, output_json, latency_ms,
+                    prompt_tokens, completion_tokens, error_message, attempt
+                ) VALUES (
+                    :run_id, :step_id, :status, CAST(:output_json AS jsonb),
+                    :latency_ms, :prompt_tokens, :completion_tokens,
+                    :error_message, :attempt
+                )
+                """
+            ),
+            {
+                "run_id": payload["run_id"],
+                "step_id": payload["step_id"],
+                "status": status,
+                "output_json": json.dumps(result.get("output_json")),
+                "latency_ms": result.get("latency_ms"),
+                "prompt_tokens": result.get("prompt_tokens"),
+                "completion_tokens": result.get("completion_tokens"),
+                "error_message": result.get("error_message"),
+                "attempt": payload.get("attempt", 1),
+            },
+        )
+
+
+def execute_step(payload: dict) -> dict | None:
+    """Run the step. Returns what to persist, or None for step types this
+    worker does not own yet.
+    """
     node_id = payload.get("node_id")
     if node_id in FAIL_STEPS:
         raise RuntimeError(f"injected failure for node_id={node_id}")
+
+    if payload.get("step_type") != "llm_call":
+        # TODO(workers): tool_call and router get their own consumer groups so
+        # they scale independently; this one only owns llm_call.
+        log.info("node_id=%s type=%s not owned by this worker", node_id, payload.get("step_type"))
+        return None
+
+    config = payload.get("config") or {}
+    model = config.get("model")
+    if not model:
+        # Terminal: a step with no model can never succeed, so surface it
+        # rather than letting the retry ladder discover it three times.
+        raise ValueError(f"node_id={node_id} is an llm_call with no config.model")
+
+    # TODO(chaining): {{var}} substitution from upstream outputs lands with
+    # variable chaining; for now the template is used verbatim.
+    prompt = config.get("prompt_template", "")
+
+    response = gateway_client.run_completion(
+        run_id=payload["run_id"],
+        step_id=payload["step_id"],
+        model=model,
+        prompt=prompt,
+        config=config,
+    )
+
+    return {
+        "output_json": {"completion": response.completion, "model": model},
+        "latency_ms": response.latency_ms,
+        "prompt_tokens": response.prompt_tokens,
+        "completion_tokens": response.completion_tokens,
+    }
     
 
 def main() -> None:
@@ -197,7 +278,9 @@ def main() -> None:
                     msg.offset(),
                     attempt,
                 )
-                execute_step(payload)
+                result = execute_step(payload)
+                if result is not None:
+                    write_step_result(engine, payload, result, "SUCCESS")
 
                 done_key = f"run:{run_id}:steps_done"
                 r.sadd(done_key, node_id)
@@ -243,9 +326,52 @@ def main() -> None:
                 # downstream never published, stalling the run permanently.
                 r.set(processed_key, "1", ex=PROCESSED_TTL_SECONDS)
                 consumer.commit(msg)
-            except Exception:
+            except Exception as exc:
                 log.exception("node_id=%s failed on attempt=%s", node_id, attempt)
-                retry_payload = {**payload, "attempt": attempt + 1}
+
+                if isinstance(exc, grpc.RpcError):
+                    terminal = exc.code() in TERMINAL_GRPC
+                    # The default repr is a multi-line dump; the trace viewer
+                    # wants the status and the reason, not the transport frame.
+                    reason = f"{exc.code().name}: {exc.details()}"
+                else:
+                    terminal = False
+                    reason = str(exc)
+                write_step_result(
+                    engine,
+                    payload,
+                    {"error_message": reason[:500]},
+                    "FAILED" if terminal else "RETRYING",
+                )
+
+                if terminal:
+                    # Straight to the DLQ: no attempt count will change the
+                    # answer, so spending them only delays the failure.
+                    log.error("node_id=%s failed terminally (%s)", node_id, exc.code().name)
+                    producer.produce(
+                        DLQ_TOPIC,
+                        key=msg.key(),
+                        value=json.dumps(
+                            {
+                                "original_message": payload,
+                                "failure_reason": "terminal gateway error",
+                                "last_error": reason[:500],
+                                "failed_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        ).encode(),
+                    )
+                    producer.flush()
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text(
+                                "UPDATE runs SET status='FAILED', ended_at=now() "
+                                "WHERE id = :run_id"
+                            ),
+                            {"run_id": run_id},
+                        )
+                    consumer.commit(msg)
+                else:
+                    retry_payload = {**payload, "attempt": attempt + 1}
             finally:
                 # Check-then-delete is not atomic; a lock that expired mid-work
                 # and was re-taken could be released by the wrong owner. Needs a
