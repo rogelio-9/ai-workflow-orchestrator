@@ -82,11 +82,21 @@ services:
       dockerfile: services/llm-gateway/Dockerfile
     ports:
       - "50052:50052"
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       GRPC_PORT: 50052
       # Ollama runs on the host, not in compose -- neither `localhost` (the
       # container itself) nor a service name reaches it.
       OLLAMA_BASE_URL: http://host.docker.internal:11434
+      REDIS_URL: redis://redis:6379
+      # Read from .env, never committed. Absent is fine: the gemini provider
+      # fails terminally with a clear message rather than at startup.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Gemini's free tier is ~10 RPM; 0 means unlimited, which is right for
+      # a local Ollama and for the mock.
+      RATE_LIMIT_GEMINI: 10
 
 volumes:
   postgres_data:

@@ -10,10 +10,12 @@ from .base import (
     ProviderError,
     ProviderNotFound,
     ProviderRateLimited,
+    ProviderRejected,
     ProviderTimeout,
     ProviderUnavailable,
     UnknownProvider,
 )
+from .gemini import GeminiProvider
 from .mock import MockProvider
 from .ollama import OllamaProvider
 
@@ -21,6 +23,7 @@ from .ollama import OllamaProvider
 _PROVIDERS: dict[str, Provider] = {
     "mock": MockProvider(),
     "ollama": OllamaProvider(),
+    "gemini": GeminiProvider(),
 }
 
 
@@ -47,6 +50,7 @@ __all__ = [
     "ProviderError",
     "ProviderNotFound",
     "ProviderRateLimited",
+    "ProviderRejected",
     "ProviderTimeout",
     "ProviderUnavailable",
     "UnknownProvider",
