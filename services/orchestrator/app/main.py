@@ -7,10 +7,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Workflow, Run
+from app.models import Workflow, Run, Step
 from app.schemas import WorkflowCreate, WorkflowRead, WorkflowUpdate, RunCreate, RunRead
 from app.dag_parser import CycleError, ready_steps, topological_sort
 from app.kafka_producer import flush, publish_step
+from app.steps import sync_steps
 
 
 app = FastAPI(title="Orchestrator")
@@ -19,6 +20,8 @@ app = FastAPI(title="Orchestrator")
 def create_workflow(payload: WorkflowCreate, db: Session = Depends(get_db)):
     workflow = Workflow(**payload.model_dump())
     db.add(workflow)
+    db.flush()
+    sync_steps(db, workflow)
     db.commit()
     db.refresh(workflow)
     return workflow
@@ -45,8 +48,16 @@ def update_workflow(
     if workflow is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(workflow, field, value)
+
+    if "dag_json" in changes:
+        # TODO(versioning): this rewrites the definition in place. The FK from
+        # step_results blocks it once a run has recorded results, which is the
+        # right refusal -- history should not point at a graph that changed
+        # underneath it. Bumping `version` instead is the real fix.
+        sync_steps(db, workflow)
 
     db.commit()
     db.refresh(workflow)
@@ -77,14 +88,21 @@ def create_run(payload: RunCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(run)
 
+    step_ids = {
+        step.node_id: step.id
+        for step in db.query(Step).filter(Step.workflow_id == workflow.id)
+    }
+
     published_at = datetime.now(timezone.utc).isoformat()
     for node in ready_steps(workflow.dag_json):
         publish_step(
             {
                 "run_id": str(run.id),
-                # TODO(steps): node ids are workflow-local strings; once the steps
-                # table is populated per run this becomes the step row's uuid.
-                "step_id": node["id"],
+                # node_id is graph identity, step_id is database identity. The
+                # worker keys locks on the former and the step_results FK on
+                # the latter.
+                "node_id": node["id"],
+                "step_id": str(step_ids[node["id"]]),
                 "step_type": node.get("type"),
                 "attempt": 1,
                 "config": node.get("config", {}),
