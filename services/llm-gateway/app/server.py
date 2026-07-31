@@ -7,6 +7,7 @@ import time
 from concurrent import futures
 
 import grpc
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
 import llm_gateway_pb2 as pb
 import llm_gateway_pb2_grpc as pb_grpc
@@ -101,6 +102,13 @@ def serve() -> None:
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=MAX_WORKERS))
     pb_grpc.add_LLMGatewayServicer_to_server(LLMGatewayServicer(), server)
+
+    # Standard grpc.health.v1 so compose can gate the worker on
+    # `condition: service_healthy` instead of racing the listener.
+    health_servicer = health.HealthServicer()
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+    health_servicer.set('', health_pb2.HealthCheckResponse.SERVING)
+    health_servicer.set('llm_gateway.v1.LLMGateway', health_pb2.HealthCheckResponse.SERVING)
     server.add_insecure_port(f"[::]:{GRPC_PORT}")
 
     server.start()
@@ -108,6 +116,9 @@ def serve() -> None:
 
     # Both signals take the same path so `docker stop` and Ctrl+C behave alike.
     def shutdown(signum, _frame):
+        # Flip to NOT_SERVING before draining so a probe stops routing new
+        # work here while in-flight RPCs finish.
+        health_servicer.enter_graceful_shutdown()
         LOG.info("signal %d received, draining for %ds", signum, GRACE_PERIOD_SECONDS)
         server.stop(GRACE_PERIOD_SECONDS)
 
