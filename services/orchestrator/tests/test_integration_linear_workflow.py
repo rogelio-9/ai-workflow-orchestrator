@@ -12,6 +12,9 @@ from sqlalchemy import create_engine, text
 from app.main import app
 
 WORKER = Path(__file__).resolve().parents[2] / "workers" / "base_worker.py"
+# The worker imports the generated gRPC stubs, which live outside any one
+# service -- the same path the gateway's Dockerfile puts on PYTHONPATH.
+GEN = Path(__file__).resolve().parents[3] / "gen"
 
 BOOT_TIMEOUT_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 60
@@ -20,7 +23,14 @@ LINEAR_DAG = {
     "nodes": [
         {"id": "fetch", "type": "tool_call", "config": {}},
         {"id": "clean", "type": "transform", "config": {}, "depends_on": ["fetch"]},
-        {"id": "summarize", "type": "llm_call", "config": {}, "depends_on": ["clean"]},
+        {
+            "id": "summarize",
+            "type": "llm_call",
+            # mock, not ollama or gemini: this test measures the pipeline,
+            # not somebody else's inference.
+            "config": {"model": "mock:echo", "prompt_template": "Summarize it."},
+            "depends_on": ["clean"],
+        },
     ]
 }
 
@@ -34,6 +44,8 @@ def worker(tmp_path):
             "KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"
         ),
         "REDIS_URL": os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+        "PYTHONPATH": str(GEN),
+        "LLM_GATEWAY_GRPC": os.environ.get("LLM_GATEWAY_GRPC", "localhost:50052"),
     }
 
     with open(log_path, "w") as log_file:
@@ -61,7 +73,21 @@ def worker(tmp_path):
         proc.wait(timeout=10)
 
 
+def _gateway_up() -> bool:
+    import socket
+
+    host, _, port = os.environ.get("LLM_GATEWAY_GRPC", "localhost:50052").partition(":")
+    try:
+        with socket.create_connection((host, int(port)), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
 def test_linear_workflow_runs_to_completion(worker):
+    if not _gateway_up():
+        pytest.skip("llm-gateway not running (docker compose up -d llm-gateway)")
+
     client = TestClient(app)
 
     workflow = client.post(
@@ -99,3 +125,23 @@ def test_linear_workflow_runs_to_completion(worker):
     assert status == "COMPLETE", (
         f"run ended {status!r}\n\nworker log:\n{worker.read_text()}"
     )
+
+    with create_engine(os.environ["DATABASE_URL"]).connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT sr.status, sr.prompt_tokens, sr.completion_tokens,
+                       sr.output_json->>'completion' AS completion
+                FROM step_results sr
+                JOIN steps s ON s.id = sr.step_id
+                WHERE sr.run_id = :run_id AND s.node_id = 'summarize'
+                """
+            ),
+            {"run_id": run_id},
+        ).one()
+
+    # The join through steps only resolves if the FK holds a real uuid, which
+    # is what the whole node_id / step_id split was for.
+    assert row.status == "SUCCESS"
+    assert row.completion.startswith("[mock:echo]")
+    assert row.prompt_tokens > 0 and row.completion_tokens > 0
