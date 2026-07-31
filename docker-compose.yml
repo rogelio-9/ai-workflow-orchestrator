@@ -84,6 +84,9 @@ services:
       - "50052:50052"
     environment:
       GRPC_PORT: 50052
+      # Ollama runs on the host, not in compose -- neither `localhost` (the
+      # container itself) nor a service name reaches it.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
 
 volumes:
   postgres_data:
