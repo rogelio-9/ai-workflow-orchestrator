@@ -12,6 +12,7 @@ from app.schemas import WorkflowCreate, WorkflowRead, WorkflowUpdate, RunCreate,
 from app.dag_parser import CycleError, ready_steps, topological_sort
 from app.kafka_producer import flush, publish_step
 from app.steps import sync_steps
+from app.retry_run import retry_run
 
 
 app = FastAPI(title="Orchestrator")
@@ -113,6 +114,33 @@ def create_run(payload: RunCreate, db: Session = Depends(get_db)):
     flush()
 
     return run
+
+@app.post("/runs/{run_id}/retry", response_model=RunRead)
+def retry_run_endpoint(
+    run_id: uuid.UUID,
+    from_node_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    try:
+        republished = retry_run(db, run, from_node_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    if not republished:
+        # Nothing failed, so there is nothing to resume. 409 rather than a
+        # silent 200: the caller asked for work that does not exist.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="run has no failed steps to retry",
+        )
+
+    db.refresh(run)
+    return run
+
 
 @app.get("/runs/{run_id}", response_model=RunRead)
 def get_run(run_id: uuid.UUID, db: Session = Depends(get_db)):
