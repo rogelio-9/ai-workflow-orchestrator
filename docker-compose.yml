@@ -115,6 +115,21 @@ services:
       # a local Ollama and for the mock.
       RATE_LIMIT_GEMINI: 10
 
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://orchestrator:orchestrator@postgres:5432/orchestrator
+      # Reads hit Postgres directly; writes will go here so the orchestrator
+      # stays the only thing that validates a DAG and publishes to Kafka.
+      ORCHESTRATOR_URL: http://orchestrator:8000
+
   llm-worker:
     build:
       context: .
