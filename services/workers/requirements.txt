@@ -1,0 +1,6 @@
+confluent-kafka==2.15.0
+redis==8.0.1
+SQLAlchemy==2.0.51
+psycopg2-binary==2.9.12
+grpcio==1.83.0
+protobuf==7.35.1
