@@ -5,20 +5,18 @@ REST API so its validation and Kafka publishing stay in one place. Reading
 directly is what keeps a nested query from fanning out into an HTTP request
 per level, which would reintroduce the round trips GraphQL exists to remove.
 
-KNOWN N+1: the nesting resolvers below issue one query per parent, so
-`workflows { runs { stepResults } }` currently costs 1 + W + R queries --
-measured at 72 for 47 workflows and 24 runs, against 3 if batched. Moving
-them to strawberry.dataloader.DataLoader collapses each level into a single
-`WHERE id = ANY(:ids)`. TODO(dataloader)
+The nesting resolvers go through DataLoaders (see loaders.py) so they do not
+reintroduce the same fan-out in SQL instead.
 """
 
+import asyncio
 import datetime
 import uuid
-from typing import Any
 
 import strawberry
 from sqlalchemy import text
 from strawberry.scalars import JSON
+from strawberry.types import Info
 
 from app.db import engine
 
@@ -47,10 +45,11 @@ class Run:
     ended_at: datetime.datetime | None
 
     @strawberry.field
-    def step_results(self) -> list[StepResult]:
+    async def step_results(self, info: Info) -> list[StepResult]:
         """Joined through steps so each result carries its node_id -- the id a
         human recognises, rather than the surrogate key."""
-        return _step_results_for(self.id)
+        rows = await info.context["loaders"]["step_results"].load(self.id)
+        return [StepResult(**row) for row in rows]
 
 
 @strawberry.type
@@ -63,51 +62,28 @@ class Workflow:
     updated_at: datetime.datetime | None
 
     @strawberry.field
-    def runs(self, status: str | None = None) -> list["Run"]:
-        return _runs_for(self.id, status)
+    async def runs(self, info: Info, status: str | None = None) -> list[Run]:
+        rows = await info.context["loaders"]["runs"].load(self.id)
+        # Filtered after the batch rather than in SQL: folding the argument
+        # into the key would give every distinct status its own batch and undo
+        # the batching.
+        return [Run(**row) for row in rows if status is None or row["status"] == status]
 
 
-def _rows(sql: str, **params) -> list[Any]:
+def _rows(sql: str, **params):
     with engine.connect() as conn:
         return conn.execute(text(sql), params).mappings().all()
 
 
-def _step_results_for(run_id: uuid.UUID) -> list[StepResult]:
-    rows = _rows(
-        """
-        SELECT sr.step_id, s.node_id, sr.status, sr.attempt, sr.output_json,
-               sr.latency_ms, sr.prompt_tokens, sr.completion_tokens,
-               sr.error_message, sr.created_at
-        FROM step_results sr
-        JOIN steps s ON s.id = sr.step_id
-        WHERE sr.run_id = :run_id
-        ORDER BY s.step_order, sr.attempt
-        """,
-        run_id=run_id,
-    )
-    return [StepResult(**row) for row in rows]
-
-
-def _runs_for(workflow_id: uuid.UUID, status: str | None) -> list[Run]:
-    rows = _rows(
-        """
-        SELECT id, workflow_id, status, input_vars, started_at, ended_at
-        FROM runs
-        WHERE workflow_id = :workflow_id
-          AND (:status IS NULL OR status = :status)
-        ORDER BY started_at DESC
-        """,
-        workflow_id=workflow_id,
-        status=status,
-    )
-    return [Run(**row) for row in rows]
+async def _rows_async(sql: str, **params):
+    return await asyncio.to_thread(_rows, sql, **params)
 
 
 @strawberry.type
 class Query:
     @strawberry.field
-    def workflows(self) -> list[Workflow]:
-        rows = _rows(
+    async def workflows(self) -> list[Workflow]:
+        rows = await _rows_async(
             """
             SELECT id, name, dag_json, version, created_at, updated_at
             FROM workflows ORDER BY created_at DESC
@@ -116,8 +92,8 @@ class Query:
         return [Workflow(**row) for row in rows]
 
     @strawberry.field
-    def workflow(self, id: uuid.UUID) -> Workflow | None:
-        rows = _rows(
+    async def workflow(self, id: uuid.UUID) -> Workflow | None:
+        rows = await _rows_async(
             """
             SELECT id, name, dag_json, version, created_at, updated_at
             FROM workflows WHERE id = :id
@@ -127,8 +103,8 @@ class Query:
         return Workflow(**rows[0]) if rows else None
 
     @strawberry.field
-    def run(self, id: uuid.UUID) -> Run | None:
-        rows = _rows(
+    async def run(self, id: uuid.UUID) -> Run | None:
+        rows = await _rows_async(
             """
             SELECT id, workflow_id, status, input_vars, started_at, ended_at
             FROM runs WHERE id = :id
