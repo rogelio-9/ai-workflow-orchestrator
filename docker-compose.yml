@@ -33,6 +33,24 @@ services:
       timeout: 10s
       retries: 5
 
+  # Topics were created by hand on D8 and D10, which meant a `compose down`
+  # silently destroyed them: auto-create is off, so the producer's delivery
+  # callback fails behind an otherwise clean 201 and nothing consumes.
+  # Idempotent, so it is safe on every boot.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # Every line at the same indent: a `>` folded scalar keeps newlines on any
+    # line indented further than the first, which breaks the command apart.
+    command: >
+      bash -c "
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic workflow.tasks --partitions 3 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic workflow.tasks.dlq --partitions 3 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:29092 --list
+      "
+
   postgres:
     image: postgres:16
     ports:
@@ -71,9 +89,14 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql+psycopg2://orchestrator:orchestrator@postgres:5432/orchestrator
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # retry clears the worker's markers, so the orchestrator needs the same
+      # Redis the worker writes them to.
+      REDIS_URL: redis://redis:6379
 
   llm-gateway:
     build:
@@ -139,6 +162,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       # The consumer of the health service added on D17: without this the
