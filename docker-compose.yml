@@ -152,6 +152,10 @@ services:
       # Reads hit Postgres directly; writes will go here so the orchestrator
       # stays the only thing that validates a DAG and publishes to Kafka.
       ORCHESTRATOR_URL: http://orchestrator:8000
+      # From .env, never committed. Absent means auth fails closed with a
+      # 500 rather than verifying every signature against "".
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_DISABLED: ${AUTH_DISABLED:-false}
 
   llm-worker:
     build:
