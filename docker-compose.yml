@@ -82,6 +82,23 @@ services:
       dockerfile: services/llm-gateway/Dockerfile
     ports:
       - "50052:50052"
+    # Speaks grpc.health.v1 against itself. No extra binary needed -- grpcio
+    # and grpc_health are already in the image for the server side.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import grpc, sys
+          from grpc_health.v1 import health_pb2, health_pb2_grpc
+          ch = grpc.insecure_channel("localhost:50052")
+          r = health_pb2_grpc.HealthStub(ch).Check(health_pb2.HealthCheckRequest(), timeout=3)
+          sys.exit(0 if r.status == health_pb2.HealthCheckResponse.SERVING else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     depends_on:
       redis:
         condition: service_healthy
@@ -97,6 +114,28 @@ services:
       # Gemini's free tier is ~10 RPM; 0 means unlimited, which is right for
       # a local Ollama and for the mock.
       RATE_LIMIT_GEMINI: 10
+
+  llm-worker:
+    build:
+      context: .
+      dockerfile: services/workers/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # The consumer of the health service added on D17: without this the
+      # worker can subscribe and pull a step before the gateway is listening,
+      # and burn a retry on a connection refusal.
+      llm-gateway:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://orchestrator:orchestrator@postgres:5432/orchestrator
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_URL: redis://redis:6379
+      LLM_GATEWAY_GRPC: llm-gateway:50052
 
 volumes:
   postgres_data:
