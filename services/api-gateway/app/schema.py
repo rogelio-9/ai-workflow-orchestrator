@@ -19,6 +19,7 @@ from strawberry.scalars import JSON
 from strawberry.types import Info
 
 from app.db import engine
+from app.mutations import Mutation
 
 
 @strawberry.type
@@ -114,4 +115,4 @@ class Query:
         return Run(**rows[0]) if rows else None
 
 
-schema = strawberry.Schema(query=Query)
+schema = strawberry.Schema(query=Query, mutation=Mutation)
