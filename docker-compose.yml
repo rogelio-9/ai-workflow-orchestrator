@@ -147,6 +147,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://orchestrator:orchestrator@postgres:5432/orchestrator
       # Reads hit Postgres directly; writes will go here so the orchestrator
@@ -156,6 +158,10 @@ services:
       # 500 rather than verifying every signature against "".
       JWT_SECRET: ${JWT_SECRET:-}
       AUTH_DISABLED: ${AUTH_DISABLED:-false}
+      REDIS_URL: redis://redis:6379
+      # Per user, unlike the LLM gateway's per-provider limit: this one
+      # stops one caller monopolising the workers.
+      RATE_LIMIT_PER_USER: 30
 
   llm-worker:
     build:
