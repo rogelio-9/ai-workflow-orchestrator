@@ -56,12 +56,21 @@ def _throttle(info: Info) -> None:
 class Mutation:
     @strawberry.mutation
     async def create_workflow(
-        self, info: Info, name: str, dag_json: JSON, created_by: uuid.UUID
+        self, info: Info, name: str, dag_json: JSON
     ) -> WorkflowRef:
+        """Ownership comes from the verified token, never from an argument.
+
+        Accepting created_by from the client let any caller write a workflow
+        owned by anyone -- and then read it back once queries are scoped.
+        """
         _throttle(info)
         body = await _post(
             "/workflows",
-            json={"name": name, "dag_json": dag_json, "created_by": str(created_by)},
+            json={
+                "name": name,
+                "dag_json": dag_json,
+                "created_by": info.context["user_id"],
+            },
         )
         return WorkflowRef(id=body["id"], name=body["name"], version=body["version"])
 

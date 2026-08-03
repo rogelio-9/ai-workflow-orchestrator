@@ -83,34 +83,46 @@ async def _rows_async(sql: str, **params):
 @strawberry.type
 class Query:
     @strawberry.field
-    async def workflows(self) -> list[Workflow]:
+    async def workflows(self, info: Info) -> list[Workflow]:
         rows = await _rows_async(
             """
             SELECT id, name, dag_json, version, created_at, updated_at
-            FROM workflows ORDER BY created_at DESC
-            """
+            FROM workflows WHERE created_by = :user_id
+            ORDER BY created_at DESC
+            """,
+            user_id=info.context["user_id"],
         )
         return [Workflow(**row) for row in rows]
 
     @strawberry.field
-    async def workflow(self, id: uuid.UUID) -> Workflow | None:
+    async def workflow(self, info: Info, id: uuid.UUID) -> Workflow | None:
+        # Ownership is in the WHERE clause, not a check after the fetch: an
+        # unowned id returns null, which is indistinguishable from a
+        # nonexistent one. A 'forbidden' error would confirm the row exists.
         rows = await _rows_async(
             """
             SELECT id, name, dag_json, version, created_at, updated_at
-            FROM workflows WHERE id = :id
+            FROM workflows WHERE id = :id AND created_by = :user_id
             """,
             id=id,
+            user_id=info.context["user_id"],
         )
         return Workflow(**rows[0]) if rows else None
 
     @strawberry.field
-    async def run(self, id: uuid.UUID) -> Run | None:
+    async def run(self, info: Info, id: uuid.UUID) -> Run | None:
+        # Runs have no owner column; ownership is inherited through the
+        # workflow, so the join is what enforces it.
         rows = await _rows_async(
             """
-            SELECT id, workflow_id, status, input_vars, started_at, ended_at
-            FROM runs WHERE id = :id
+            SELECT r.id, r.workflow_id, r.status, r.input_vars,
+                   r.started_at, r.ended_at
+            FROM runs r
+            JOIN workflows w ON w.id = r.workflow_id
+            WHERE r.id = :id AND w.created_by = :user_id
             """,
             id=id,
+            user_id=info.context["user_id"],
         )
         return Run(**rows[0]) if rows else None
 
