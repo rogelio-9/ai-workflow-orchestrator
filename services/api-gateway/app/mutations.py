@@ -12,6 +12,7 @@ import uuid
 import httpx
 import strawberry
 from strawberry.scalars import JSON
+from strawberry.types import Info
 
 ORCHESTRATOR_URL = os.environ.get("ORCHESTRATOR_URL", "http://localhost:8000")
 TIMEOUT_SECONDS = float(os.environ.get("ORCHESTRATOR_TIMEOUT_SECONDS", "30"))
@@ -45,12 +46,19 @@ async def _post(path: str, **kwargs) -> dict:
     return response.json()
 
 
+def _throttle(info: Info) -> None:
+    """Writes are throttled, reads are not: a run spawns LLM calls and
+    worker time, a query costs three SELECTs."""
+    info.context["limiter"].check(info.context["user_id"])
+
+
 @strawberry.type
 class Mutation:
     @strawberry.mutation
     async def create_workflow(
-        self, name: str, dag_json: JSON, created_by: uuid.UUID
+        self, info: Info, name: str, dag_json: JSON, created_by: uuid.UUID
     ) -> WorkflowRef:
+        _throttle(info)
         body = await _post(
             "/workflows",
             json={"name": name, "dag_json": dag_json, "created_by": str(created_by)},
@@ -59,8 +67,9 @@ class Mutation:
 
     @strawberry.mutation
     async def run_workflow(
-        self, workflow_id: uuid.UUID, input_vars: JSON | None = None
+        self, info: Info, workflow_id: uuid.UUID, input_vars: JSON | None = None
     ) -> RunRef:
+        _throttle(info)
         body = await _post(
             "/runs",
             json={"workflow_id": str(workflow_id), "input_vars": input_vars or {}},
@@ -71,10 +80,11 @@ class Mutation:
 
     @strawberry.mutation
     async def retry_run(
-        self, run_id: uuid.UUID, from_node_id: str | None = None
+        self, info: Info, run_id: uuid.UUID, from_node_id: str | None = None
     ) -> RunRef:
         """Resume a failed run. Without from_node_id every step whose latest
         attempt did not succeed is republished."""
+        _throttle(info)
         params = {"from_node_id": from_node_id} if from_node_id else None
         body = await _post(f"/runs/{run_id}/retry", params=params)
         return RunRef(

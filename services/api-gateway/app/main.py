@@ -7,14 +7,19 @@ from strawberry.fastapi import GraphQLRouter
 from app.auth import require_user
 from app.db import engine
 from app.loaders import build_loaders
+from app.ratelimit import UserRateLimiter
 from app.schema import schema
 
 
 async def get_context(user_id: str = Depends(require_user)):
     # Fresh loaders per request: a DataLoader caches by key for its lifetime,
     # so a shared instance would serve stale rows to later requests.
-    return {"loaders": build_loaders(), "user_id": user_id}
+    return {"loaders": build_loaders(), "user_id": user_id, "limiter": _limiter}
 
+
+# One per process: it holds a Redis connection pool and a registered Lua
+# script, neither of which should be rebuilt per request.
+_limiter = UserRateLimiter()
 
 app = FastAPI(title="API Gateway")
 
