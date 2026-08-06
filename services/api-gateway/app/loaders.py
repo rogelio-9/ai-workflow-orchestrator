@@ -34,7 +34,7 @@ async def _rows_async(sql: str, **params):
 async def _load_runs(workflow_ids: list[uuid.UUID]) -> list[list[dict]]:
     rows = await _rows_async(
         """
-        SELECT id, workflow_id, status, input_vars, started_at, ended_at
+        SELECT id, workflow_id, workflow_version, status, input_vars, started_at, ended_at
         FROM runs
         WHERE workflow_id = ANY(:workflow_ids)
         ORDER BY started_at DESC

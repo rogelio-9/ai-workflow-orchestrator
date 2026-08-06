@@ -40,6 +40,9 @@ class StepResult:
 class Run:
     id: uuid.UUID
     workflow_id: uuid.UUID
+    # The version this run executed. The workflow may have been edited since,
+    # so the trace has to say which graph it is describing.
+    workflow_version: int
     status: str
     input_vars: JSON | None
     started_at: datetime.datetime | None
@@ -116,7 +119,7 @@ class Query:
         rows = await _rows_async(
             """
             SELECT r.id, r.workflow_id, r.status, r.input_vars,
-                   r.started_at, r.ended_at
+                   r.workflow_version, r.started_at, r.ended_at
             FROM runs r
             JOIN workflows w ON w.id = r.workflow_id
             WHERE r.id = :id AND w.created_by = :user_id
