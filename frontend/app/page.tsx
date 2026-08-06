@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@apollo/client/react";
 import { WORKFLOWS, type WorkflowSummary } from "@/lib/queries";
 
@@ -50,7 +51,9 @@ export default function WorkflowsPage() {
           return (
             <li key={workflow.id} className="workflow-card">
               <div>
-                <h2>{workflow.name}</h2>
+                <h2>
+                  <Link href={`/workflows/${workflow.id}`}>{workflow.name}</Link>
+                </h2>
                 <p className="muted">
                   {workflow.runs.length} run{workflow.runs.length === 1 ? "" : "s"}
                   {latest ? ` · last ${relative(latest.startedAt)}` : ""}
