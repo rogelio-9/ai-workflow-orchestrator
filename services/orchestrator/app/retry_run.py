@@ -61,9 +61,22 @@ def retry_run(db: Session, run: Run, from_node_id: str | None = None) -> list[st
 
     step_ids = {
         step.node_id: str(step.id)
-        for step in db.query(Step).filter(Step.workflow_id == workflow.id)
+        for step in db.query(Step).filter(
+            Step.workflow_id == workflow.id, Step.version == run.workflow_version
+        )
     }
-    nodes = {node["id"]: node for node in workflow.dag_json.get("nodes", [])}
+
+    # The snapshot, not workflows.dag_json: the workflow may have been edited
+    # since this run started, and resuming into a different graph would
+    # republish steps the run never had.
+    snapshot = db.execute(
+        text(
+            "SELECT dag_json FROM workflow_versions "
+            "WHERE workflow_id = :workflow_id AND version = :version"
+        ),
+        {"workflow_id": str(workflow.id), "version": run.workflow_version},
+    ).scalar_one()
+    nodes = {node["id"]: node for node in snapshot.get("nodes", [])}
 
     done_key = f"run:{run.id}:steps_done"
     published_at = datetime.now(timezone.utc).isoformat()

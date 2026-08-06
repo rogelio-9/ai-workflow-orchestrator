@@ -54,10 +54,10 @@ def update_workflow(
         setattr(workflow, field, value)
 
     if "dag_json" in changes:
-        # TODO(versioning): this rewrites the definition in place. The FK from
-        # step_results blocks it once a run has recorded results, which is the
-        # right refusal -- history should not point at a graph that changed
-        # underneath it. Bumping `version` instead is the real fix.
+        # Copy-on-write: a new version, a new set of steps rows. Existing runs
+        # stay pinned to the version they started on, so their step_results
+        # keep describing the graph that actually produced them.
+        workflow.version += 1
         sync_steps(db, workflow)
 
     db.commit()
@@ -84,14 +84,22 @@ def create_run(payload: RunCreate, db: Session = Depends(get_db)):
     except CycleError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    run = Run(**payload.model_dump(), status="PENDING")
+    # Pinned at creation: a retry must resume against the graph this run
+    # started on, not whatever it has been edited into since.
+    run = Run(
+        **payload.model_dump(),
+        status="PENDING",
+        workflow_version=workflow.version,
+    )
     db.add(run)
     db.commit()
     db.refresh(run)
 
     step_ids = {
         step.node_id: step.id
-        for step in db.query(Step).filter(Step.workflow_id == workflow.id)
+        for step in db.query(Step).filter(
+            Step.workflow_id == workflow.id, Step.version == run.workflow_version
+        )
     }
 
     published_at = datetime.now(timezone.utc).isoformat()
