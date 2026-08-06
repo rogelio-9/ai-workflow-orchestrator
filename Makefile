@@ -40,3 +40,16 @@ test:
 	@cd services/orchestrator && $(TEST_ENV) .venv/bin/python -m pytest -q
 	@cd services/llm-gateway  && $(TEST_ENV) .venv/bin/python -m pytest -q
 	@cd services/api-gateway  && $(TEST_ENV) .venv/bin/python -m pytest -q
+
+.PHONY: web token
+
+# Not in docker-compose: the dev server wants fast reloads and a terminal, and
+# containerising it buys nothing until there is something to deploy.
+web:
+	@cd frontend && npm run dev
+
+# Mints a development JWT for frontend/.env.local. Reads JWT_SECRET from .env
+# and passes it through the environment so it stays out of shell history.
+token:
+	@JWT_SECRET=$$(grep '^JWT_SECRET' .env | cut -d= -f2-) \
+		services/api-gateway/.venv/bin/python scripts/mint_token.py $(USER_ID)
