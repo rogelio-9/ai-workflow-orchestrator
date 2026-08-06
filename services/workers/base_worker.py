@@ -80,11 +80,18 @@ def build_engine():
     return create_engine(os.environ["DATABASE_URL"])
 
 def load_dag(engine, run_id: str) -> dict:
+    """The graph this run started on, not the workflow's current one.
+
+    workflows.dag_json is mutable -- an edit mid-run would otherwise change
+    which steps this run thinks it has left to do. The join is on the version
+    the run pinned at creation.
+    """
     with engine.begin() as conn:
         row = conn.execute(
             text(
-                "SELECT w.dag_json FROM runs r "
-                "JOIN workflows w ON w.id = r.workflow_id "
+                "SELECT v.dag_json FROM runs r "
+                "JOIN workflow_versions v "
+                "  ON v.workflow_id = r.workflow_id AND v.version = r.workflow_version "
                 "WHERE r.id = :run_id"
             ),
             {"run_id": run_id},
@@ -93,14 +100,15 @@ def load_dag(engine, run_id: str) -> dict:
 
 
 def load_step_ids(engine, run_id: str) -> dict[str, str]:
-    """node_id -> steps row uuid, for the workflow behind this run."""
+    """node_id -> steps row uuid, at the version this run pinned."""
     with engine.connect() as conn:
         rows = conn.execute(
             text(
                 """
                 SELECT s.node_id, s.id
                 FROM steps s
-                JOIN runs r ON r.workflow_id = s.workflow_id
+                JOIN runs r
+                  ON r.workflow_id = s.workflow_id AND r.workflow_version = s.version
                 WHERE r.id = :run_id
                 """
             ),
