@@ -25,7 +25,18 @@ venvs:
 		services/$$svc/.venv/bin/pip install -q -r $$req; \
 	done
 
+# Declared here rather than assumed from the shell. Tests were passing only
+# because these happened to be exported in one terminal, which is the same
+# class of bug as the shared venv: the environment I verify in is not the
+# environment anyone else gets. Ports are the host-side mappings in
+# docker-compose.yml; the suites skip themselves when nothing is listening.
+TEST_ENV := \
+	DATABASE_URL=postgresql+psycopg2://orchestrator:orchestrator@localhost:5432/orchestrator \
+	REDIS_URL=redis://localhost:6379 \
+	KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+	LLM_GATEWAY_GRPC=localhost:50052
+
 test:
-	@cd services/orchestrator && .venv/bin/python -m pytest -q
-	@cd services/llm-gateway  && .venv/bin/python -m pytest -q
-	@cd services/api-gateway  && .venv/bin/python -m pytest -q
+	@cd services/orchestrator && $(TEST_ENV) .venv/bin/python -m pytest -q
+	@cd services/llm-gateway  && $(TEST_ENV) .venv/bin/python -m pytest -q
+	@cd services/api-gateway  && $(TEST_ENV) .venv/bin/python -m pytest -q
