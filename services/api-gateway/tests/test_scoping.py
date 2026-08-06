@@ -38,8 +38,8 @@ def two_owners():
             ).scalar_one()
             run_id = conn.execute(
                 text(
-                    "INSERT INTO runs (workflow_id, status) "
-                    "VALUES (:wf, 'COMPLETE') RETURNING id"
+                    "INSERT INTO runs (workflow_id, workflow_version, status) "
+                    "VALUES (:wf, 1, 'COMPLETE') RETURNING id"
                 ),
                 {"wf": str(workflow_id)},
             ).scalar_one()

@@ -45,16 +45,16 @@ def owner_with_data():
             step_id = conn.execute(
                 text(
                     """
-                    INSERT INTO steps (workflow_id, node_id, type, config_json, step_order)
-                    VALUES (:wf, 'a', 'llm_call', '{}', 0) RETURNING id
+                    INSERT INTO steps (workflow_id, version, node_id, type, config_json, step_order)
+                    VALUES (:wf, 1, 'a', 'llm_call', '{}', 0) RETURNING id
                     """
                 ),
                 {"wf": str(workflow_id)},
             ).scalar_one()
             run_id = conn.execute(
                 text(
-                    "INSERT INTO runs (workflow_id, status) "
-                    "VALUES (:wf, 'COMPLETE') RETURNING id"
+                    "INSERT INTO runs (workflow_id, workflow_version, status) "
+                    "VALUES (:wf, 1, 'COMPLETE') RETURNING id"
                 ),
                 {"wf": str(workflow_id)},
             ).scalar_one()

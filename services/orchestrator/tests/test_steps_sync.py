@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import Step
+from app.models import Step, Workflow
 
 client = TestClient(app)
 
@@ -31,9 +31,16 @@ def _create(dag_json):
     return uuid.UUID(response.json()["id"])
 
 
-def _steps(workflow_id):
+def _steps(workflow_id, version=None):
+    """Rows at one version -- steps now accumulates every version a workflow
+    has had, so an unscoped query returns the union of all of them."""
     with SessionLocal() as db:
-        return {s.node_id: s for s in db.query(Step).filter(Step.workflow_id == workflow_id)}
+        if version is None:
+            version = db.get(Workflow, workflow_id).version
+        rows = db.query(Step).filter(
+            Step.workflow_id == workflow_id, Step.version == version
+        )
+        return {s.node_id: s for s in rows}
 
 
 def test_creating_a_workflow_materializes_one_step_per_node():
@@ -55,18 +62,22 @@ def test_step_order_follows_topological_order():
     assert steps["left"].step_order < steps["join"].step_order
 
 
-def test_patching_the_graph_resyncs_the_rows():
+def test_patching_the_graph_writes_a_new_version():
     workflow_id = _create(DIAMOND)
     response = client.patch(
         f"/workflows/{workflow_id}",
         json={"dag_json": {"nodes": [{"id": "only", "type": "llm_call", "config": {}}]}},
     )
     assert response.status_code == 200
-    assert set(_steps(workflow_id)) == {"only"}
+    assert response.json()["version"] == 2
+    assert set(_steps(workflow_id, version=2)) == {"only"}
+    # The old rows are not replaced -- step_results from earlier runs point at
+    # them, and a trace should keep describing the graph that produced it.
+    assert set(_steps(workflow_id, version=1)) == {"fetch", "left", "right", "join"}
 
 
 def test_same_node_id_allowed_across_different_workflows():
-    # The unique constraint is (workflow_id, node_id) -- "summarize" is not
-    # reserved globally.
+    # The unique constraint is (workflow_id, node_id, version) -- "summarize"
+    # is not reserved globally.
     first, second = _create(DIAMOND), _create(DIAMOND)
     assert _steps(first)["fetch"].id != _steps(second)["fetch"].id

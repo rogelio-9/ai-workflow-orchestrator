@@ -41,7 +41,12 @@ def run_with_steps():
 
         sync_steps(db, workflow)
 
-        run = Run(workflow_id=workflow.id, status="FAILED", input_vars={})
+        run = Run(
+            workflow_id=workflow.id,
+            workflow_version=workflow.version,
+            status="FAILED",
+            input_vars={},
+        )
         db.add(run)
         db.commit()
 
