@@ -129,3 +129,84 @@ a {
 }
 
 .state[data-kind="error"] { border-color: #e03131; }
+
+.workflow-card h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.workflow-card h2 a:hover {
+  text-decoration: underline;
+}
+
+.canvas {
+  margin-top: 1.5rem;
+  height: 70vh;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.step-node {
+  width: 200px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.step-node[data-kind="llm_call"]  { border-left-color: #1971c2; }
+.step-node[data-kind="tool_call"] { border-left-color: #f08c00; }
+.step-node[data-kind="router"]    { border-left-color: #7048e8; }
+
+.step-node-kind {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.step-node-label {
+  font-weight: 600;
+  margin-top: 0.1rem;
+}
+
+.step-node-model {
+  color: var(--muted);
+  margin-top: 0.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* React Flow's own stylesheet loads after globals.css, because Next injects
+   component-level CSS later -- so ordinary overrides here lose the cascade no
+   matter how they are written. These are the library's own theming variables,
+   which it reads at use time, so declaration order stops mattering.
+
+   Only the tokens that tie the canvas to this app's palette are set. Light and
+   dark are handled by colorMode on the ReactFlow component, not here. */
+.canvas {
+  --xy-background-pattern-color: var(--border);
+  --xy-edge-stroke: var(--muted);
+  --xy-handle-background-color: var(--muted);
+  --xy-handle-border-color: var(--background);
+}
+
+/* The default 200x150 panel eats a quarter of the viewport on a short graph. */
+.canvas .react-flow__minimap {
+  width: 150px;
+  height: 100px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.canvas .react-flow__minimap-mask {
+  stroke: var(--muted);
+  stroke-width: 2;
+}
