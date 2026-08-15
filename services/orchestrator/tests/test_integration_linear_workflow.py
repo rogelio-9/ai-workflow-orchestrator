@@ -19,15 +19,31 @@ GEN = Path(__file__).resolve().parents[3] / "gen"
 BOOT_TIMEOUT_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 60
 
+# Every step is an llm_call because every step has to actually execute.
+#
+# This used to open with a tool_call and a transform, and passed -- because the
+# worker silently skipped step types it did not own, marked them done, and
+# published their dependents anyway. The run reached COMPLETE having run one
+# step of three, and the assertion below could not tell the difference. Skipping
+# is now a terminal failure, which is what turned this test red and exposed it.
 LINEAR_DAG = {
     "nodes": [
-        {"id": "fetch", "type": "tool_call", "config": {}},
-        {"id": "clean", "type": "transform", "config": {}, "depends_on": ["fetch"]},
+        # mock, not ollama or gemini: this test measures the pipeline, not
+        # somebody else's inference.
+        {
+            "id": "fetch",
+            "type": "llm_call",
+            "config": {"model": "mock:echo", "prompt_template": "Fetch it."},
+        },
+        {
+            "id": "clean",
+            "type": "llm_call",
+            "config": {"model": "mock:echo", "prompt_template": "Clean it."},
+            "depends_on": ["fetch"],
+        },
         {
             "id": "summarize",
             "type": "llm_call",
-            # mock, not ollama or gemini: this test measures the pipeline,
-            # not somebody else's inference.
             "config": {"model": "mock:echo", "prompt_template": "Summarize it."},
             "depends_on": ["clean"],
         },
@@ -145,3 +161,25 @@ def test_linear_workflow_runs_to_completion(worker):
     assert row.status == "SUCCESS"
     assert row.completion.startswith("[mock:echo]")
     assert row.prompt_tokens > 0 and row.completion_tokens > 0
+
+    # Every step, not just the last one. A run status of COMPLETE only means
+    # the graph was satisfied -- it says nothing about whether each step
+    # actually executed, which is exactly how a skipped step hid here before.
+    with create_engine(os.environ["DATABASE_URL"]).connect() as conn:
+        executed = conn.execute(
+            text(
+                """
+                SELECT s.node_id, sr.status
+                FROM step_results sr
+                JOIN steps s ON s.id = sr.step_id
+                WHERE sr.run_id = :run_id
+                """
+            ),
+            {"run_id": run_id},
+        ).all()
+
+    assert {node_id: status for node_id, status in executed} == {
+        "fetch": "SUCCESS",
+        "clean": "SUCCESS",
+        "summarize": "SUCCESS",
+    }

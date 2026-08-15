@@ -42,6 +42,15 @@ TERMINAL_GRPC = {
     grpc.StatusCode.NOT_FOUND,
 }
 
+
+class TerminalStepError(Exception):
+    """A failure the worker itself can tell is not worth retrying.
+
+    Terminality used to be readable only off a gRPC status, so a step that
+    could never succeed -- an llm_call with no model, a step type nothing
+    executes -- still burned the whole backoff ladder to reach the same answer.
+    """
+
 running = True
 
 
@@ -166,26 +175,37 @@ def write_step_result(engine, payload: dict, result: dict, status: str) -> None:
         )
 
 
-def execute_step(payload: dict) -> dict | None:
-    """Run the step. Returns what to persist, or None for step types this
-    worker does not own yet.
+def execute_step(payload: dict) -> dict:
+    """Run the step and return what to persist.
+
+    Raises rather than returning None for anything it cannot execute: the
+    caller treats a returned value as success and fans out regardless.
     """
     node_id = payload.get("node_id")
     if node_id in FAIL_STEPS:
         raise RuntimeError(f"injected failure for node_id={node_id}")
 
-    if payload.get("step_type") != "llm_call":
-        # TODO(workers): tool_call and router get their own consumer groups so
-        # they scale independently; this one only owns llm_call.
-        log.info("node_id=%s type=%s not owned by this worker", node_id, payload.get("step_type"))
-        return None
+    step_type = payload.get("step_type")
+    if step_type != "llm_call":
+        # Fails rather than skipping. Returning None here marked the step done
+        # and published its dependents, so a tool_call nothing executes still
+        # satisfied the steps that consumed its output -- the run reported
+        # COMPLETE having never fetched anything.
+        #
+        # TODO(workers): tool_call and router need their own consumer groups.
+        # A single group means one worker receives each message, so a second
+        # worker type cannot simply ignore what it does not own; until then,
+        # failing loudly beats a run that lies.
+        raise TerminalStepError(
+            f"no worker owns step type {step_type!r} (this worker runs llm_call)"
+        )
 
     config = payload.get("config") or {}
     model = config.get("model")
     if not model:
         # Terminal: a step with no model can never succeed, so surface it
         # rather than letting the retry ladder discover it three times.
-        raise ValueError(f"node_id={node_id} is an llm_call with no config.model")
+        raise TerminalStepError(f"node_id={node_id} is an llm_call with no config.model")
 
     # TODO(chaining): {{var}} substitution from upstream outputs lands with
     # variable chaining; for now the template is used verbatim.
@@ -287,8 +307,7 @@ def main() -> None:
                     attempt,
                 )
                 result = execute_step(payload)
-                if result is not None:
-                    write_step_result(engine, payload, result, "SUCCESS")
+                write_step_result(engine, payload, result, "SUCCESS")
 
                 done_key = f"run:{run_id}:steps_done"
                 r.sadd(done_key, node_id)
@@ -343,7 +362,9 @@ def main() -> None:
                     # wants the status and the reason, not the transport frame.
                     reason = f"{exc.code().name}: {exc.details()}"
                 else:
-                    terminal = False
+                    # The worker can reach this conclusion itself, not only by
+                    # reading a gateway status code.
+                    terminal = isinstance(exc, TerminalStepError)
                     reason = str(exc)
                 write_step_result(
                     engine,
@@ -355,14 +376,18 @@ def main() -> None:
                 if terminal:
                     # Straight to the DLQ: no attempt count will change the
                     # answer, so spending them only delays the failure.
-                    log.error("node_id=%s failed terminally (%s)", node_id, exc.code().name)
+                    label = (
+                        exc.code().name if isinstance(exc, grpc.RpcError)
+                        else type(exc).__name__
+                    )
+                    log.error("node_id=%s failed terminally (%s)", node_id, label)
                     producer.produce(
                         DLQ_TOPIC,
                         key=msg.key(),
                         value=json.dumps(
                             {
                                 "original_message": payload,
-                                "failure_reason": "terminal gateway error",
+                                "failure_reason": "terminal error",
                                 "last_error": reason[:500],
                                 "failed_at": datetime.now(timezone.utc).isoformat(),
                             }
