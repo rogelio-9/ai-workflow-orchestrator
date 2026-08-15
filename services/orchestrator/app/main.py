@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Workflow, Run, Step
 from app.schemas import WorkflowCreate, WorkflowRead, WorkflowUpdate, RunCreate, RunRead
-from app.dag_parser import CycleError, ready_steps, topological_sort
+from app.dag_parser import InvalidDag, ready_steps, topological_sort
 from app.kafka_producer import flush, publish_step
 from app.steps import sync_steps
 from app.retry_run import retry_run
@@ -22,7 +22,13 @@ def create_workflow(payload: WorkflowCreate, db: Session = Depends(get_db)):
     workflow = Workflow(**payload.model_dump())
     db.add(workflow)
     db.flush()
-    sync_steps(db, workflow)
+    # Validated at write time, not just at run time. A graph that cannot be
+    # ordered is bad input, and returning 201 for it means the failure surfaces
+    # later as a 500 from somewhere unrelated.
+    try:
+        sync_steps(db, workflow)
+    except InvalidDag as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     db.commit()
     db.refresh(workflow)
     return workflow
@@ -58,7 +64,10 @@ def update_workflow(
         # stay pinned to the version they started on, so their step_results
         # keep describing the graph that actually produced them.
         workflow.version += 1
-        sync_steps(db, workflow)
+        try:
+            sync_steps(db, workflow)
+        except InvalidDag as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     db.commit()
     db.refresh(workflow)
@@ -81,7 +90,7 @@ def create_run(payload: RunCreate, db: Session = Depends(get_db)):
 
     try:
         topological_sort(workflow.dag_json)
-    except CycleError as exc:
+    except InvalidDag as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Pinned at creation: a retry must resume against the graph this run

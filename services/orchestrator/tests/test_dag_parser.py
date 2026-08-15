@@ -61,3 +61,29 @@ def test_cycle_raises():
     }
     with pytest.raises(CycleError):
         topological_sort(dag)
+
+def test_a_dependency_on_an_unknown_node_is_rejected():
+    from app.dag_parser import UnknownDependency
+
+    with pytest.raises(UnknownDependency) as exc:
+        topological_sort({"nodes": [{"id": "a", "depends_on": ["ghost"]}]})
+    # Without the explicit check this surfaced as a cycle error: the dangling
+    # dependency keeps the in-degree above zero forever, so the cycle branch
+    # fires with a true failure and a false explanation.
+    assert "ghost" in str(exc.value)
+
+
+def test_duplicate_node_ids_are_rejected():
+    from app.dag_parser import DuplicateNodeId
+
+    # The dict comprehensions collapse duplicates silently, so one of the two
+    # nodes would simply never run and nothing would say so.
+    with pytest.raises(DuplicateNodeId):
+        topological_sort({"nodes": [{"id": "a"}, {"id": "a"}]})
+
+
+def test_a_valid_graph_still_sorts():
+    order = topological_sort(
+        {"nodes": [{"id": "b", "depends_on": ["a"]}, {"id": "a"}]}
+    )
+    assert order == ["a", "b"]
