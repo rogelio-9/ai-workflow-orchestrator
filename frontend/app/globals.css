@@ -210,3 +210,130 @@ a {
   stroke: var(--muted);
   stroke-width: 2;
 }
+
+/* Canvas and inspector share a row on wide screens, stack on narrow ones.
+   The canvas gets the flexible column; the panel is fixed so field labels do
+   not reflow every time the graph changes size. */
+.canvas-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 800px) {
+  .canvas-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.canvas-shell .canvas {
+  margin-top: 0;
+}
+
+.inspector {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.8rem;
+  height: 70vh;
+  min-height: 420px;
+  overflow-y: auto;
+}
+
+.inspector-header {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector-swatch {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  flex: none;
+}
+
+.inspector-kind {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.inspector h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.inspector-section {
+  padding-top: 0.85rem;
+}
+
+.inspector-section h3 {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.fields {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.field dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.field dd {
+  word-break: break-word;
+  /* Config values are strings the user wrote -- prompts especially. Preserving
+     newlines keeps a multi-line prompt readable instead of collapsing it. */
+  white-space: pre-wrap;
+}
+
+.field dd[data-inherited="true"] {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+.chip[data-dangling] {
+  border-color: #e03131;
+  color: #e03131;
+}
+
+.warn {
+  margin-top: 0.5rem;
+  color: #e03131;
+}
+
+/* React Flow marks the clicked node; without a visible cue the panel appears
+   to describe an arbitrary step. */
+.react-flow__node.selected .step-node {
+  border-color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+
+.step-node {
+  cursor: pointer;
+}
