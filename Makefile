@@ -40,6 +40,7 @@ test:
 	@cd services/orchestrator && $(TEST_ENV) .venv/bin/python -m pytest -q
 	@cd services/llm-gateway  && $(TEST_ENV) .venv/bin/python -m pytest -q
 	@cd services/api-gateway  && $(TEST_ENV) .venv/bin/python -m pytest -q
+	@cd services/workers      && $(TEST_ENV) .venv/bin/python -m pytest -q
 	@cd frontend && npm test --silent
 
 .PHONY: web token
