@@ -16,6 +16,7 @@ export type DagNode = {
   type?: string;
   config?: Record<string, unknown>;
   depends_on?: string[] | null;
+  retry_policy?: Record<string, unknown> | null;
 };
 
 export type DagJson = { nodes?: DagNode[] };
@@ -24,6 +25,9 @@ export type CanvasNodeData = {
   label: string;
   kind: string;
   model?: string;
+  /** The dag node verbatim, so the inspector reads from the source rather than
+   *  from a lossy projection of it. */
+  node: DagNode;
   [key: string]: unknown;
 };
 
@@ -92,6 +96,7 @@ export function layoutDag(dag: DagJson): { nodes: Node<CanvasNodeData>[]; edges:
         label: node.id,
         kind: node.type ?? "llm_call",
         model: subtitle(node),
+        node,
       },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
