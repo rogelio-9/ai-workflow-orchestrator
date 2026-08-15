@@ -49,8 +49,23 @@ test:
 web:
 	@cd frontend && npm run dev
 
-# Mints a development JWT for frontend/.env.local. Reads JWT_SECRET from .env
-# and passes it through the environment so it stays out of shell history.
+# Mints a development JWT and writes it into frontend/.env.local.
+#
+# Writing the file rather than printing it: the token lives 12 hours, so this
+# runs at the start of most sessions, and a copy-paste step that often is a
+# step that eventually gets done wrong. JWT_SECRET is passed through the
+# environment so it stays out of shell history.
+#
+# Still a token and not the signing key -- the frontend needs to call the
+# gateway, not to mint identities. Override the owner with USER_ID=...
+USER_ID ?= 11111111-1111-1111-1111-111111111111
+
 token:
 	@JWT_SECRET=$$(grep '^JWT_SECRET' .env | cut -d= -f2-) \
-		services/api-gateway/.venv/bin/python scripts/mint_token.py $(USER_ID)
+		services/api-gateway/.venv/bin/python scripts/mint_token.py $(USER_ID) \
+		> /tmp/.wf_token
+	@printf 'GATEWAY_URL=http://localhost:4000/graphql\nDEV_TOKEN=%s\n' \
+		"$$(cat /tmp/.wf_token)" > frontend/.env.local
+	@rm -f /tmp/.wf_token
+	@echo "wrote frontend/.env.local for $(USER_ID) (valid 12h)"
+	@echo "restart 'make web' to pick it up"
