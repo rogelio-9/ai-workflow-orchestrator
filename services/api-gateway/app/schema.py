@@ -9,16 +9,14 @@ The nesting resolvers go through DataLoaders (see loaders.py) so they do not
 reintroduce the same fan-out in SQL instead.
 """
 
-import asyncio
 import datetime
 import uuid
 
 import strawberry
-from sqlalchemy import text
 from strawberry.scalars import JSON
 from strawberry.types import Info
 
-from app.db import engine
+from app.db import rows_async as _rows_async
 from app.mutations import Mutation
 
 
@@ -72,15 +70,6 @@ class Workflow:
         # into the key would give every distinct status its own batch and undo
         # the batching.
         return [Run(**row) for row in rows if status is None or row["status"] == status]
-
-
-def _rows(sql: str, **params):
-    with engine.connect() as conn:
-        return conn.execute(text(sql), params).mappings().all()
-
-
-async def _rows_async(sql: str, **params):
-    return await asyncio.to_thread(_rows, sql, **params)
 
 
 @strawberry.type

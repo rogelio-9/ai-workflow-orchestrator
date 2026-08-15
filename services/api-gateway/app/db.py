@@ -5,10 +5,22 @@ that schema, the same call the worker makes. Importing another service's
 models would couple their deploys together for no benefit on a read path.
 """
 
+import asyncio
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
+
+def rows(sql: str, **params):
+    with engine.connect() as conn:
+        return conn.execute(text(sql), params).mappings().all()
+
+
+async def rows_async(sql: str, **params):
+    """psycopg2 is synchronous; without the thread every query blocks the event
+    loop and the DataLoaders' batching wins nothing."""
+    return await asyncio.to_thread(rows, sql, **params)
