@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@apollo/client/react";
 import { WORKFLOW, type WorkflowDetail as Detail } from "@/lib/queries";
+import { RunButton } from "./RunButton";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 
 export function WorkflowDetail({ id }: { id: string }) {
@@ -44,7 +45,10 @@ export function WorkflowDetail({ id }: { id: string }) {
       <p className="muted">
         <Link href="/">← Workflows</Link>
       </p>
-      <h1>{workflow.name}</h1>
+      <div className="detail-heading">
+        <h1>{workflow.name}</h1>
+        <RunButton workflowId={workflow.id} />
+      </div>
       <p className="muted">
         v{workflow.version} · {workflow.runs.length} run
         {workflow.runs.length === 1 ? "" : "s"}

@@ -54,3 +54,12 @@ export const WORKFLOW = gql`
 export type WorkflowDetail = WorkflowSummary & {
   dagJson: { nodes?: DagNode[] };
 };
+
+export const RUN_WORKFLOW = gql`
+  mutation RunWorkflow($id: UUID!) {
+    runWorkflow(workflowId: $id) {
+      id
+      status
+    }
+  }
+`;

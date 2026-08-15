@@ -337,3 +337,34 @@ a {
 .step-node {
   cursor: pointer;
 }
+
+.detail-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.run-control {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--foreground);
+  color: var(--background);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
