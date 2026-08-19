@@ -75,8 +75,41 @@ async def _load_step_results(run_ids: list[uuid.UUID]) -> list[list[dict]]:
     return [grouped[run_id] for run_id in run_ids]
 
 
+async def _load_versioned_dags(keys: list[tuple[uuid.UUID, int]]) -> list[dict | None]:
+    """The immutable graph a run executed, keyed by (workflow_id, version).
+
+    Not workflows.dag_json: that is the current, editable copy, and rendering a
+    trace against it would lay results from one graph over a different one --
+    which is the mismatch the version snapshot exists to prevent. Keying on the
+    pair rather than the run id means several runs of the same version share
+    one row instead of fetching it each.
+    """
+    workflow_ids = [workflow_id for workflow_id, _ in keys]
+    versions = [version for _, version in keys]
+
+    rows = await _rows_async(
+        """
+        SELECT workflow_id, version, dag_json
+        FROM workflow_versions
+        WHERE (workflow_id, version) IN (
+            SELECT unnest(CAST(:workflow_ids AS uuid[])),
+                   unnest(CAST(:versions AS int[]))
+        )
+        """,
+        workflow_ids=workflow_ids,
+        versions=versions,
+    )
+
+    by_key = {(row["workflow_id"], row["version"]): row["dag_json"] for row in rows}
+    # None rather than a gap: workflows written straight to SQL by old test
+    # fixtures never got a snapshot, and a missing one should render as "graph
+    # unavailable" rather than crash the whole query.
+    return [by_key.get(key) for key in keys]
+
+
 def build_loaders() -> dict[str, DataLoader]:
     return {
         "runs": DataLoader(load_fn=_load_runs),
         "step_results": DataLoader(load_fn=_load_step_results),
+        "versioned_dag": DataLoader(load_fn=_load_versioned_dags),
     }

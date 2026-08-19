@@ -53,6 +53,18 @@ class Run:
         rows = await info.context["loaders"]["step_results"].load(self.id)
         return [StepResult(**row) for row in rows]
 
+    @strawberry.field
+    async def dag_json(self, info: Info) -> JSON | None:
+        """The graph this run executed, from the version snapshot.
+
+        Workflow.dagJson is the current copy and will have moved on if the
+        workflow was edited since. A trace viewer that read it would draw the
+        wrong nodes around the right results.
+        """
+        return await info.context["loaders"]["versioned_dag"].load(
+            (self.workflow_id, self.workflow_version)
+        )
+
 
 @strawberry.type
 class Workflow:
