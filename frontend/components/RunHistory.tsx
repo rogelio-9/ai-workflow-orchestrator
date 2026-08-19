@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation } from "@apollo/client/react";
 import { RETRY_RUN, WORKFLOW, type Run } from "@/lib/queries";
 import { duration, isRetryable, isRunning, ranOlderVersion, tally } from "@/lib/runs";
@@ -62,7 +63,9 @@ export function RunHistory({
 
               {/* The id is the handle for correlating with worker logs, so it
                   is shown rather than hidden behind the row being clickable. */}
-              <code className="run-id">{run.id.slice(0, 8)}</code>
+              <Link className="run-id" href={`/runs/${run.id}`}>
+                {run.id.slice(0, 8)}
+              </Link>
 
               <span className="muted">
                 {new Date(run.startedAt ?? "").toLocaleString()}

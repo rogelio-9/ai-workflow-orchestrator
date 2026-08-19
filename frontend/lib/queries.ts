@@ -74,3 +74,31 @@ export const RETRY_RUN = gql`
     }
   }
 `;
+
+export const RUN_TRACE = gql`
+  query RunTrace($id: UUID!) {
+    run(id: $id) {
+      id
+      workflowId
+      workflowVersion
+      status
+      startedAt
+      endedAt
+      inputVars
+      # The graph this run executed, not the workflow's current one.
+      dagJson
+      stepResults {
+        stepId
+        nodeId
+        status
+        attempt
+        outputJson
+        latencyMs
+        promptTokens
+        completionTokens
+        errorMessage
+        createdAt
+      }
+    }
+  }
+`;
