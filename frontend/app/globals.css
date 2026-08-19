@@ -368,3 +368,66 @@ a {
   opacity: 0.5;
   cursor: default;
 }
+
+.history {
+  margin-top: 2.5rem;
+}
+
+.history h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.run-list {
+  list-style: none;
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.run-row {
+  display: grid;
+  /* Fixed columns rather than flex: the status and duration should line up
+     down the list, or scanning for the slow run means reading every row. */
+  grid-template-columns: 6.5rem 5rem 1fr 7rem 10rem auto;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 800px) {
+  .run-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.run-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+
+.badge[data-muted] {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.muted[data-live] {
+  color: #1971c2;
+}
+
+.run-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.button-quiet {
+  background: transparent;
+  color: var(--foreground);
+  font-weight: 500;
+  padding: 0.25rem 0.6rem;
+}

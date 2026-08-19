@@ -23,6 +23,7 @@ export type Run = {
   status: string;
   workflowVersion: number;
   startedAt: string | null;
+  endedAt?: string | null;
 };
 
 export type WorkflowSummary = {
@@ -46,6 +47,7 @@ export const WORKFLOW = gql`
         status
         workflowVersion
         startedAt
+        endedAt
       }
     }
   }
@@ -58,6 +60,15 @@ export type WorkflowDetail = WorkflowSummary & {
 export const RUN_WORKFLOW = gql`
   mutation RunWorkflow($id: UUID!) {
     runWorkflow(workflowId: $id) {
+      id
+      status
+    }
+  }
+`;
+
+export const RETRY_RUN = gql`
+  mutation RetryRun($id: UUID!) {
+    retryRun(runId: $id) {
       id
       status
     }

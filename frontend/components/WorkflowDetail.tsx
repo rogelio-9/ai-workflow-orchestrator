@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@apollo/client/react";
 import { WORKFLOW, type WorkflowDetail as Detail } from "@/lib/queries";
 import { RunButton } from "./RunButton";
+import { RunHistory } from "./RunHistory";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 
 export function WorkflowDetail({ id }: { id: string }) {
@@ -56,6 +57,12 @@ export function WorkflowDetail({ id }: { id: string }) {
       </p>
 
       <WorkflowCanvas dag={workflow.dagJson} />
+
+      <RunHistory
+        runs={workflow.runs}
+        workflowId={workflow.id}
+        currentVersion={workflow.version}
+      />
     </>
   );
 }
