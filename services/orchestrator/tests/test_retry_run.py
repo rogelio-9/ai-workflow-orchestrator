@@ -119,3 +119,42 @@ def test_retry_of_a_node_not_in_the_graph_is_400(run_with_steps):
     response = client.post(f"/runs/{run_id}/retry", params={"from_node_id": "ghost"})
     assert response.status_code == 400
     assert "ghost" in response.json()["detail"]
+
+
+def test_a_retry_that_succeeds_clears_the_node(run_with_steps):
+    run_id, steps = run_with_steps
+    # The worker's own ladder: two attempts inside one delivery, then failure.
+    record(run_id, steps["first"], "RETRYING", 1)
+    record(run_id, steps["first"], "FAILED", 2)
+    with SessionLocal() as db:
+        assert failed_nodes(db, run_id) == ["first"]
+
+    # A user-initiated retry, which restarts the attempt count. Ordering by
+    # attempt sorted this success underneath the attempt-2 failure, so the node
+    # stayed failed and every later retry re-ran a step that had worked.
+    record(run_id, steps["first"], "SUCCESS", 1)
+    with SessionLocal() as db:
+        assert failed_nodes(db, run_id) == []
+
+
+def test_a_republished_step_continues_the_attempt_count(run_with_steps):
+    from app.retry_run import next_attempt
+
+    run_id, steps = run_with_steps
+    record(run_id, steps["first"], "RETRYING", 1)
+    record(run_id, steps["first"], "FAILED", 2)
+
+    with SessionLocal() as db:
+        attempts = next_attempt(db, run_id, {"first": str(steps["first"])})
+    # Not 1: two rows both labelled "attempt 1" are indistinguishable in a
+    # trace, and the count is the only record of what the step cost.
+    assert attempts["first"] == 3
+
+
+def test_a_step_with_no_results_starts_at_one(run_with_steps):
+    from app.retry_run import next_attempt
+
+    run_id, steps = run_with_steps
+    with SessionLocal() as db:
+        attempts = next_attempt(db, run_id, {"second": str(steps["second"])})
+    assert attempts["second"] == 1

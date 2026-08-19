@@ -31,7 +31,15 @@ _redis = redis.from_url(REDIS_URL, decode_responses=True)
 
 
 def failed_nodes(db: Session, run_id) -> list[str]:
-    """node_ids whose latest attempt in this run did not succeed."""
+    """node_ids whose most recent result in this run was not a success.
+
+    Ordered by time, not by attempt number. Attempt used to lead, which was
+    wrong once a user-initiated retry could exist: the worker's own ladder
+    counts 1, 2, 3 within one delivery, so a step that failed at attempt 2 and
+    then succeeded on a retry had its success sorted underneath the failure.
+    The node stayed "failed" forever, and every subsequent retry re-ran a step
+    that had already worked.
+    """
     rows = db.execute(
         text(
             """
@@ -39,12 +47,35 @@ def failed_nodes(db: Session, run_id) -> list[str]:
             FROM step_results sr
             JOIN steps s ON s.id = sr.step_id
             WHERE sr.run_id = :run_id
-            ORDER BY s.node_id, sr.attempt DESC, sr.created_at DESC
+            ORDER BY s.node_id, sr.created_at DESC, sr.attempt DESC
             """
         ),
         {"run_id": str(run_id)},
     ).all()
     return [node_id for node_id, status in rows if status != "SUCCESS"]
+
+
+def next_attempt(db: Session, run_id, step_ids: dict[str, str]) -> dict[str, int]:
+    """The attempt number a republished step should carry, per node.
+
+    Continues the sequence rather than restarting it. Two rows both labelled
+    "attempt 1" are indistinguishable in a trace, and the count is the only
+    record of how much work a step actually cost.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT s.node_id, max(sr.attempt) AS attempt
+            FROM step_results sr
+            JOIN steps s ON s.id = sr.step_id
+            WHERE sr.run_id = :run_id
+            GROUP BY s.node_id
+            """
+        ),
+        {"run_id": str(run_id)},
+    ).all()
+    highest = {node_id: attempt for node_id, attempt in rows}
+    return {node_id: highest.get(node_id, 0) + 1 for node_id in step_ids}
 
 
 def retry_run(db: Session, run: Run, from_node_id: str | None = None) -> list[str]:
@@ -78,6 +109,7 @@ def retry_run(db: Session, run: Run, from_node_id: str | None = None) -> list[st
     ).scalar_one()
     nodes = {node["id"]: node for node in snapshot.get("nodes", [])}
 
+    attempts = next_attempt(db, run.id, step_ids)
     done_key = f"run:{run.id}:steps_done"
     published_at = datetime.now(timezone.utc).isoformat()
 
@@ -98,7 +130,7 @@ def retry_run(db: Session, run: Run, from_node_id: str | None = None) -> list[st
                 "node_id": node_id,
                 "step_id": step_ids[node_id],
                 "step_type": node.get("type"),
-                "attempt": 1,
+                "attempt": attempts.get(node_id, 1),
                 "config": node.get("config", {}),
                 "input_vars": run.input_vars or {},
                 "published_at": published_at,
