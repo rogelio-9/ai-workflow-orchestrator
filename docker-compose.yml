@@ -15,6 +15,12 @@ services:
     depends_on:
       zookeeper:
         condition: service_healthy
+    # An unclean shutdown -- a force-quit, a laptop sleeping, Docker Desktop
+    # dying -- leaves the broker's ephemeral /brokers/ids/1 node behind in
+    # Zookeeper, and the next start dies on NodeExists. The node clears itself
+    # once the old session times out, so retrying a few seconds later succeeds;
+    # without this the whole stack needs a manual zookeeper restart to boot.
+    restart: on-failure
     ports:
       - "9092:9092"
     environment:
